@@ -1,0 +1,10 @@
+langchain-core
+python-telegram-bot==22.3
+langchain-google-genai
+langchain-community
+langchain-openai
+langgraph
+python-dotenv
+pydantic
+tavily-python
+wikipedia
