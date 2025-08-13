@@ -5,7 +5,7 @@ from typing import Dict, Any
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
 from dotenv import load_dotenv
-from research_assistant import graph
+from research_assistant import graph, graph_no_interrupt
 from schema import ResearchGraphState
 
 # Load environment variables
@@ -210,62 +210,100 @@ Send me a topic to begin!
         )
 
         try:
-            # Continue the graph with approval
-            current_state = session['graph_state']
-            current_state['human_analyst_feedback'] = 'approve'
+            # Use the approved analysts to run the full graph
+            analysts = session['graph_state']['analysts']
+            topic = session['graph_state']['topic']
             
-            logger.info(f"Continuing graph with approval and current state: {current_state}")
+            logger.info(f"Running full research with approved analysts")
+            logger.info(f"Topic: {topic}")
+            logger.info(f"Number of analysts: {len(analysts)}")
 
-            # Run the rest of the graph
-            # final_result = await asyncio.to_thread(
-            #     lambda: graph.invoke(current_state, {"recursion_limit": 50})
-            # )
+            # Create state for the no-interrupt graph
+            research_state = {
+                'topic': topic,
+                'max_analysts': len(analysts),
+                'analysts': analysts,
+                'human_analyst_feedback': 'approve'
+            }
 
-            # Run the rest of the graph with higher recursion limit
+            # Run the complete research process
             loop = asyncio.get_event_loop()
             final_result = await loop.run_in_executor(
                 None,
-                lambda: graph.invoke(current_state, {"recursion_limit": 100})
+                lambda: graph_no_interrupt.invoke(research_state, {"recursion_limit": 100})
             )
             
             print(f"[DEBUG] Final result keys: {final_result.keys()}")
+            print(f"[DEBUG] Sections available: {len(final_result.get('sections', []))}")
+            if 'sections' in final_result:
+                print(f"[DEBUG] Section types: {[type(s) for s in final_result['sections']]}")
             
-            # Check if final_report exists
-            if 'final_report' not in final_result:
-                print("[DEBUG] final_report not found, checking other keys...")
+            # Check if final_report exists and construct it properly
+            final_report = None
+            if 'final_report' in final_result and final_result['final_report']:
+                final_report = final_result['final_report']
+                print("[DEBUG] Using final_report from result")
+            else:
+                print("[DEBUG] final_report not found, constructing from available parts...")
                 print(f"[DEBUG] Available keys: {list(final_result.keys())}")
                 
                 # Try to construct report from available parts
                 report_parts = []
-                if 'introduction' in final_result:
+                if 'introduction' in final_result and final_result['introduction']:
                     report_parts.append(final_result['introduction'])
-                if 'content' in final_result:
+                    print("[DEBUG] Added introduction")
+                if 'content' in final_result and final_result['content']:
                     report_parts.append(final_result['content'])
-                if 'conclusion' in final_result:
+                    print("[DEBUG] Added content")
+                if 'conclusion' in final_result and final_result['conclusion']:
                     report_parts.append(final_result['conclusion'])
+                    print("[DEBUG] Added conclusion")
                 
                 if report_parts:
                     final_report = "\n\n---\n\n".join(report_parts)
+                    print(f"[DEBUG] Constructed report from {len(report_parts)} parts")
                 else:
                     # Fallback: use sections if available
                     sections = final_result.get('sections', [])
+                    print(f"[DEBUG] Checking sections: {len(sections)} found")
                     if sections:
-                        final_report = "\n\n".join(sections)
+                        # Convert sections to strings and join them
+                        section_strings = []
+                        for i, section in enumerate(sections):
+                            if hasattr(section, 'content'):
+                                section_strings.append(section.content)
+                            elif isinstance(section, str):
+                                section_strings.append(section)
+                            else:
+                                section_strings.append(str(section))
+                            print(f"[DEBUG] Section {i+1}: {len(section_strings[-1])} chars")
+                        
+                        if section_strings:
+                            final_report = "\n\n".join(section_strings)
+                            print(f"[DEBUG] Constructed report from {len(sections)} sections")
+                        else:
+                            print("[DEBUG] Sections exist but couldn't extract content")
+                            raise Exception("Sections found but content extraction failed")
                     else:
-                        raise Exception("No report content generated")
-            else:
-                final_report = final_result['final_report']
+                        print("[DEBUG] No sections found either")
+                        raise Exception("No report content generated - no final_report, parts, or sections found")
+
+            if not final_report:
+                raise Exception("Final report is empty or None")
 
             print(f"[DEBUG] Report length: {len(final_report)}")
 
-
             # Send the final report
-            await self.send_report(query, final_result['final_report'])
+            await self.send_report(query, final_report)
 
         except Exception as e:
             logger.error(f"Error completing research: {e}")
+            logger.error(f"Error type: {type(e).__name__}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
+            
             await query.message.reply_text(
-                "❌ Sorry, there was an error completing the research. Please try again with /new"
+                f"❌ Sorry, there was an error completing the research: {str(e)}\n\nPlease try again with /new"
             )
         finally:
             # Clean up session
@@ -319,30 +357,147 @@ Send me a topic to begin!
 
     async def send_report(self, query, report: str) -> None:
         """Send the final report to the user."""
-        # Split report if it's too long for Telegram (4096 char limit)
-        max_length = 4000
-        print(report[:10])
-        report = report[:max_length-1]
-
-        if len(report) <= max_length:
-            logger.info("Sending report")
+        if not report or report.strip() == "":
             await query.message.reply_text(
-                f"📋 **Research Report Complete!**\n\n{report}"
+                "❌ The generated report is empty. Please try again with /new"
             )
+            return
+            
+        max_length = 4000
+        print(f"[DEBUG] Report length: {len(report)} chars")
+        
+        if len(report) <= max_length:
+            # Send as single message
+            try:
+                logger.info("Sending report as single message")
+                await query.message.reply_text(
+                    f"📋 **Research Report Complete!**\n\n{report}",
+                    parse_mode='Markdown'
+                )
+            except Exception as e:
+                # Fallback without markdown if there are parsing issues
+                logger.error(f"Error sending with markdown: {e}")
+                await query.message.reply_text(
+                    f"📋 Research Report Complete!\n\n{report}"
+                )
         else:
-            # Split the report into chunks
+            # Split into multiple messages
+            logger.info(f"Splitting long report ({len(report)} chars) into multiple messages")
+            
+            # First, send the header message
             await query.message.reply_text(
                 "📋 **Research Report Complete!**\n\nSending in multiple parts due to length...",
                 parse_mode='Markdown'
             )
             
-            chunks = [report[i:i+max_length] for i in range(0, len(report), max_length)]
+            # Split the report into logical sections if possible
+            sections = self._split_report_intelligently(report, max_length)
+            logger.info(f"Split report into {len(sections)} sections")
             
-            for i, chunk in enumerate(chunks, 1):
-                await query.message.reply_text(
-                    f"**Part {i}/{len(chunks)}:**\n\n{chunk}",
-                    parse_mode='Markdown'
-                )
+            for i, section in enumerate(sections, 1):
+                try:
+                    # Add part indicator
+                    part_header = f"**Part {i}/{len(sections)}:**\n\n"
+                    message_content = part_header + section
+                    
+                    logger.info(f"Sending part {i}/{len(sections)} ({len(message_content)} chars)")
+                    
+                    await query.message.reply_text(
+                        message_content,
+                        parse_mode='Markdown'
+                    )
+                    
+                    logger.info(f"Successfully sent part {i}/{len(sections)}")
+                    
+                    # Small delay between messages to avoid rate limiting
+                    await asyncio.sleep(1.0)
+                    
+                except Exception as e:
+                    # Fallback without markdown
+                    logger.error(f"Error sending part {i} with markdown: {e}")
+                    try:
+                        await query.message.reply_text(
+                            f"Part {i}/{len(sections)}:\n\n{section}"
+                        )
+                        logger.info(f"Successfully sent part {i}/{len(sections)} (no markdown)")
+                    except Exception as e2:
+                        logger.error(f"Failed to send part {i} even without markdown: {e2}")
+                    await asyncio.sleep(1.0)
+
+    def _split_report_intelligently(self, report: str, max_length: int) -> list:
+        """Split report into chunks, trying to preserve logical sections."""
+        # Account for part header overhead (about 50 chars)
+        effective_max = max_length - 100
+        
+        # Try to split on section boundaries first
+        sections = []
+        
+        # Look for markdown headers as natural break points
+        import re
+        header_pattern = r'\n(#{1,3}\s+.*?)\n'
+        parts = re.split(header_pattern, report)
+        
+        current_chunk = ""
+        
+        for part in parts:
+            # If adding this part would exceed the limit
+            if len(current_chunk + part) > effective_max and current_chunk:
+                # Save current chunk and start new one
+                sections.append(current_chunk.strip())
+                current_chunk = part
+            else:
+                current_chunk += part
+        
+        # Add the last chunk
+        if current_chunk:
+            sections.append(current_chunk.strip())
+        
+        # If no good section breaks found, split by length
+        if len(sections) == 1 and len(sections[0]) > effective_max:
+            sections = self._split_by_length(sections[0], effective_max)
+        
+        # Ensure no section is too long
+        final_sections = []
+        for section in sections:
+            if len(section) > effective_max:
+                final_sections.extend(self._split_by_length(section, effective_max))
+            else:
+                final_sections.append(section)
+        
+        return final_sections
+
+    def _split_by_length(self, text: str, max_length: int) -> list:
+        """Split text by length, trying to break at sentence boundaries."""
+        chunks = []
+        current_chunk = ""
+        
+        # Split by sentences
+        sentences = text.split('. ')
+        
+        for sentence in sentences:
+            sentence = sentence.strip()
+            if not sentence:
+                continue
+                
+            # Add period back if it was removed by split (except for last sentence)
+            if not sentence.endswith('.') and not sentence.endswith('!') and not sentence.endswith('?'):
+                sentence += '.'
+            
+            # If adding this sentence would exceed the limit
+            if len(current_chunk + ' ' + sentence) > max_length and current_chunk:
+                chunks.append(current_chunk.strip())
+                current_chunk = sentence
+            else:
+                if current_chunk:
+                    current_chunk += ' ' + sentence
+                else:
+                    current_chunk = sentence
+        
+        # Add the last chunk
+        if current_chunk:
+            chunks.append(current_chunk.strip())
+        
+        return chunks
 
     def run(self):
         """Run the bot."""

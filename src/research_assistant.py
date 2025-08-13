@@ -19,7 +19,6 @@ from typing_extensions import TypedDict
 from langchain_community.document_loaders import WikipediaLoader
 from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, get_buffer_string
-from langchain_openai import ChatOpenAI
 
 from langgraph.constants import Send
 from langgraph.graph import END, MessagesState, START, StateGraph
@@ -67,7 +66,18 @@ def create_analysts(state: GenerateAnalystsState):
 
 def human_feedback(state: GenerateAnalystsState):
     """ No-op node that should be interrupted on """
-    pass
+    # Check if we have human feedback
+    human_feedback = state.get('human_analyst_feedback', '')
+    if human_feedback.lower() == 'approve':
+        print("Human feedback: Approved, continuing...")
+        return state
+    elif human_feedback and human_feedback.lower() != 'approve':
+        print(f"Human feedback: {human_feedback}, regenerating analysts...")
+        return state
+    else:
+        print("Waiting for human feedback...")
+        # This should trigger the interrupt
+        return state
 
 # Generate analyst question
 question_instructions = """You are an analyst tasked with interviewing an expert to learn about a specific topic. 
@@ -397,8 +407,14 @@ def write_report(state: ResearchGraphState):
     print("Writing report")
 
     # Full set of sections
-    sections = state["sections"]
-    topic = state["topic"]
+    sections = state.get("sections", [])
+    topic = state.get("topic", "Unknown Topic")
+    
+    if not sections:
+        print("Warning: No sections found in state")
+        return {"content": "No sections available for report generation"}
+
+    print(f"Number of sections: {len(sections)}")
 
     # Concat all sections together
     formatted_str_sections = "\n\n".join([f"{section}" for section in sections])
@@ -406,6 +422,8 @@ def write_report(state: ResearchGraphState):
     # Summarize the sections into a final report
     system_message = report_writer_instructions.format(topic=topic, context=formatted_str_sections)    
     report = llm.invoke([SystemMessage(content=system_message)]+[HumanMessage(content=f"Write a report based upon these memos.")]) 
+    
+    print(f"Generated report content length: {len(report.content)}")
     return {"content": report.content}
 
 # Write the introduction or conclusion
@@ -438,16 +456,21 @@ def write_introduction(state: ResearchGraphState):
     print("Writing introduction")
 
     # Full set of sections
-    sections = state["sections"]
-    topic = state["topic"]
+    sections = state.get("sections", [])
+    topic = state.get("topic", "Unknown Topic")
+    
+    if not sections:
+        print("Warning: No sections found for introduction")
+        sections = ["No sections available"]
 
     # Concat all sections together
     formatted_str_sections = "\n\n".join([f"{section}" for section in sections])
     
     # Summarize the sections into a final report
-    
     instructions = intro_conclusion_instructions.format(topic=topic, formatted_str_sections=formatted_str_sections)    
-    intro = llm.invoke([instructions]+[HumanMessage(content=f"Write the report introduction")]) 
+    intro = llm.invoke([SystemMessage(content=instructions)]+[HumanMessage(content=f"Write the report introduction")]) 
+    
+    print(f"Generated introduction length: {len(intro.content)}")
     return {"introduction": intro.content}
 
 def write_conclusion(state: ResearchGraphState):
@@ -457,16 +480,21 @@ def write_conclusion(state: ResearchGraphState):
     print("Writing conclusion")
 
     # Full set of sections
-    sections = state["sections"]
-    topic = state["topic"]
+    sections = state.get("sections", [])
+    topic = state.get("topic", "Unknown Topic")
+    
+    if not sections:
+        print("Warning: No sections found for conclusion")
+        sections = ["No sections available"]
 
     # Concat all sections together
     formatted_str_sections = "\n\n".join([f"{section}" for section in sections])
     
     # Summarize the sections into a final report
-    
     instructions = intro_conclusion_instructions.format(topic=topic, formatted_str_sections=formatted_str_sections)    
-    conclusion = llm.invoke([instructions]+[HumanMessage(content=f"Write the report conclusion")]) 
+    conclusion = llm.invoke([SystemMessage(content=instructions)]+[HumanMessage(content=f"Write the report conclusion")]) 
+    
+    print(f"Generated conclusion length: {len(conclusion.content)}")
     return {"conclusion": conclusion.content}
 
 def finalize_report(state: ResearchGraphState):
@@ -476,20 +504,42 @@ def finalize_report(state: ResearchGraphState):
     print("Finalizing report")
 
     # Save full final report
-    content = state["content"]
+    content = state.get("content", "")
+    introduction = state.get("introduction", "")
+    conclusion = state.get("conclusion", "")
+    
+    if not content:
+        print("Warning: No content found in state")
+        content = "No content available"
+    
+    if not introduction:
+        print("Warning: No introduction found in state")
+        introduction = "# Research Report\n\n## Introduction\n\nIntroduction not available"
+    
+    if not conclusion:
+        print("Warning: No conclusion found in state")
+        conclusion = "## Conclusion\n\nConclusion not available"
+    
+    # Clean up content formatting
     if content.startswith("## Insights"):
-        content = content.strip("## Insights")
+        content = content.replace("## Insights", "", 1).strip()
+    
+    sources = None
     if "## Sources" in content:
         try:
-            content, sources = content.split("\n## Sources\n")
-        except:
+            content_parts = content.split("\n## Sources\n", 1)
+            if len(content_parts) == 2:
+                content, sources = content_parts
+        except Exception as e:
+            print(f"Error parsing sources: {e}")
             sources = None
-    else:
-        sources = None
 
-    final_report = state["introduction"] + "\n\n---\n\n" + content + "\n\n---\n\n" + state["conclusion"]
+    # Combine all parts
+    final_report = introduction + "\n\n---\n\n" + content + "\n\n---\n\n" + conclusion
     if sources is not None:
         final_report += "\n\n## Sources\n" + sources
+    
+    print(f"Final report length: {len(final_report)}")
     return {"final_report": final_report}
 
 # Add nodes and edges 
@@ -507,10 +557,39 @@ builder.add_edge(START, "create_analysts")
 builder.add_edge("create_analysts", "human_feedback")
 builder.add_conditional_edges("human_feedback", initiate_all_interviews, ["create_analysts", "conduct_interview"])
 builder.add_edge("conduct_interview", "write_report")
-builder.add_edge("conduct_interview", "write_introduction")
-builder.add_edge("conduct_interview", "write_conclusion")
-builder.add_edge(["write_conclusion", "write_report", "write_introduction"], "finalize_report")
+builder.add_edge("write_report", "write_introduction")
+builder.add_edge("write_introduction", "write_conclusion")
+builder.add_edge("write_conclusion", "finalize_report")
 builder.add_edge("finalize_report", END)
 
-# Compile
+# Compile two versions of the graph
 graph = builder.compile(interrupt_before=['human_feedback'])
+
+# Version without interrupts for direct execution
+builder_no_interrupt = StateGraph(ResearchGraphState)
+builder_no_interrupt.add_node("create_analysts", create_analysts)
+builder_no_interrupt.add_node("conduct_interview", interview_builder.compile())
+builder_no_interrupt.add_node("write_report", write_report)
+builder_no_interrupt.add_node("write_introduction", write_introduction)
+builder_no_interrupt.add_node("write_conclusion", write_conclusion)
+builder_no_interrupt.add_node("finalize_report", finalize_report)
+
+# Direct flow without human feedback
+def initiate_all_interviews_direct(state: ResearchGraphState):
+    """ Conditional edge to initiate all interviews via Send() API """
+    print("Initiating all interviews (direct)")
+    topic = state["topic"]
+    return [Send("conduct_interview", {"analyst": analyst,
+                                       "messages": [HumanMessage(
+                                           content=f"So you said you were writing an article on {topic}?"
+                                       )]}) for analyst in state["analysts"]]
+
+builder_no_interrupt.add_edge(START, "create_analysts")
+builder_no_interrupt.add_conditional_edges("create_analysts", initiate_all_interviews_direct, ["conduct_interview"])
+builder_no_interrupt.add_edge("conduct_interview", "write_report")
+builder_no_interrupt.add_edge("write_report", "write_introduction")
+builder_no_interrupt.add_edge("write_introduction", "write_conclusion")
+builder_no_interrupt.add_edge("write_conclusion", "finalize_report")
+builder_no_interrupt.add_edge("finalize_report", END)
+
+graph_no_interrupt = builder_no_interrupt.compile()
