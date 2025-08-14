@@ -417,9 +417,9 @@ npm start
 - 💬 **Discussions**: Use GitHub Discussions
 - 📖 **Documentation**: Check the frontend README for detailed setup
 
-## 📜 License
+## Inspired by
 
-This project is licensed under the MIT License. See [LICENSE](LICENSE) file for details.
+[Langgraph-Research-Assistant](https://github.com/langchain-ai/langchain-academy/blob/main/module-4/research-assistant.ipynb)
 
 ## 🙏 Acknowledgments
 
