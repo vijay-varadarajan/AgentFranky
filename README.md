@@ -9,9 +9,9 @@
 
 **An AI-powered research assistant that creates teams of AI analysts to conduct comprehensive research and generate detailed reports**
 
-[🚀 Quick Start](#-quick-start) • [📖 Documentation](#-documentation) • [🔧 Installation](#-installation) • [🌐 Demo](#-web-interface)
-
+[🚀 Quick Start](#-quick-start) • [🕹️ Live: Research Agent](https://research-agent-v0.vercel.app/) • [🔧 Installation](#-installation)
 </div>
+
 
 ---
 
