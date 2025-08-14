@@ -23,7 +23,7 @@ app = Flask(__name__)
 if os.environ.get('FLASK_ENV') == 'production':
     # In production, only allow your Vercel domain
     CORS(app, origins=[
-        "https://your-vercel-app.vercel.app",  # Replace with your actual Vercel URL
+        "https://research-agent-v0.vercel.app/",  # Replace with your actual Vercel URL
         "https://*.vercel.app"  # Allow all Vercel preview deployments
     ])
 else:
