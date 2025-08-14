@@ -18,7 +18,17 @@ from research_assistant import graph, graph_no_interrupt
 from schema import ResearchGraphState
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for React frontend
+
+# Configure CORS based on environment
+if os.environ.get('FLASK_ENV') == 'production':
+    # In production, only allow your Vercel domain
+    CORS(app, origins=[
+        "https://your-vercel-app.vercel.app",  # Replace with your actual Vercel URL
+        "https://*.vercel.app"  # Allow all Vercel preview deployments
+    ])
+else:
+    # In development, allow all origins
+    CORS(app)
 
 # Store active sessions
 sessions = {}
@@ -203,9 +213,18 @@ def internal_error(error):
 if __name__ == '__main__':
     print("🔬 Research Assistant API Server")
     print("=" * 40)
-    print("Starting API server on http://localhost:5000")
-    print("Frontend should be accessible on http://localhost:3000")
-    print("Health check: http://localhost:5000/api/health")
+    
+    # Get port from environment variable (for Render) or default to 5000
+    port = int(os.environ.get('PORT', 5000))
+    debug_mode = os.environ.get('FLASK_ENV') != 'production'
+    
+    if debug_mode:
+        print(f"Starting API server on http://localhost:{port}")
+        print("Frontend should be accessible on http://localhost:3000")
+        print(f"Health check: http://localhost:{port}/api/health")
+    else:
+        print(f"Starting production API server on port {port}")
+    
     print("=" * 40)
     
-    app.run(debug=True, port=5000, host='0.0.0.0')
+    app.run(debug=debug_mode, port=port, host='0.0.0.0')

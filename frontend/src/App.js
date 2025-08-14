@@ -4,6 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import axios from 'axios';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
+import API_BASE_URL from './config';
 
 const App = () => {
   const [messages, setMessages] = useState([]);
@@ -44,7 +45,7 @@ const App = () => {
       addMessage(topic, 'user');
       addMessage('🔍 Starting research on your topic...', 'assistant', { isLoading: true });
 
-      const response = await axios.post('/api/research/start', {
+      const response = await axios.post(`${API_BASE_URL}/api/research/start`, {
         topic: topic,
         max_analysts: 3
       });
@@ -86,7 +87,7 @@ const App = () => {
 
       addMessage('✅ Team approved! Starting in-depth research...', 'assistant', { isLoading: true });
 
-      const response = await axios.post('/api/research/approve', {
+      const response = await axios.post(`${API_BASE_URL}/api/research/approve`, {
         session_id: currentSession.id
       });
 
@@ -117,7 +118,7 @@ const App = () => {
 
       addMessage(`📝 Modifying analyst team based on your feedback: "${feedback}"`, 'assistant', { isLoading: true });
 
-      const response = await axios.post('/api/research/modify', {
+      const response = await axios.post(`${API_BASE_URL}/api/research/modify`, {
         session_id: currentSession.id,
         feedback: feedback
       });
