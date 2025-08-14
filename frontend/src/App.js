@@ -41,6 +41,9 @@ const App = () => {
     try {
       setIsLoading(true);
       setError(null);
+      setIsApproved(false); // Reset approval state for new research
+      setShowModifyButton(true); // Reset modify button visibility
+      setSelectedAnalyst(null); // Reset selected analyst
       
       addMessage(topic, 'user');
       addMessage('🔍 Starting research on your topic...', 'assistant', { isLoading: true });
