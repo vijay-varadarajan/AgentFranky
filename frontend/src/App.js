@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Search, User, Bot, Send, CheckCircle, Edit, AlertCircle, X, Download } from 'lucide-react';
+import { Search, User, Bot, Send, CheckCircle, Edit, AlertCircle, X, Download, Github } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import axios from 'axios';
 import jsPDF from 'jspdf';
@@ -341,10 +341,6 @@ const App = () => {
           <h3>🔄 Customizable Teams</h3>
           <p>Review and modify the analyst team before research begins</p>
         </div>
-        <div className="feature-card">
-          <h3>⚡ Fast Results</h3>
-          <p>Complete research reports generated in just a few minutes</p>
-        </div>
       </div>
     </div>
   );
@@ -356,6 +352,15 @@ const App = () => {
           <Search size={24} />
           AI Research Assistant
         </h1>
+        <a 
+          href="https://github.com/vijay-varadarajan/researchagent-v0" 
+          target="_blank" 
+          rel="noopener noreferrer"
+          className="github-link"
+          aria-label="View source code on GitHub"
+        >
+          <Github size={24} />
+        </a>
       </header>
 
       <main className="chat-container">
