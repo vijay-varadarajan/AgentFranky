@@ -30,7 +30,7 @@ class TelegramResearchBot:
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Send a message when the command /start is issued."""
         welcome_text = """
-🔬 Welcome to the AI Research Assistant!
+🔬 Welcome to the AgentFranky!
 
 I can help you create comprehensive research reports on any topic.
 
@@ -47,7 +47,7 @@ I can help you create comprehensive research reports on any topic.
 
 Send me a topic to begin!
         """
-        await update.message.reply_text(welcome_text)
+        await update.message.reply_text(welcome_text, parse_mode='Markdown')
 
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Send a message when the command /help is issued."""
@@ -73,7 +73,7 @@ Send me a topic to begin!
 /new - Start a fresh research project
 /start - Show welcome message
         """
-        await update.message.reply_text(help_text)
+        await update.message.reply_text(help_text, parse_mode='Markdown')
 
     async def new_research(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Start a new research project."""
