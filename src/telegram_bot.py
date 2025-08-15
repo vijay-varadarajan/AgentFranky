@@ -625,6 +625,8 @@ Send me a topic to begin!
                 webhook_info = await self.application.bot.get_webhook_info()
                 print(f"📋 Webhook info: {webhook_info.url}")
                 print(f"📊 Pending updates: {webhook_info.pending_update_count}")
+
+                await self.application.start()
                 
             except Exception as e:
                 logger.error(f"Error setting up webhook: {e}")
