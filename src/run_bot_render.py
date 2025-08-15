@@ -38,7 +38,7 @@ def main():
     
     # Get webhook URL from environment or construct it
     if not os.getenv('WEBHOOK_URL'):
-        render_service_name = os.getenv('RENDER_SERVICE_NAME', 'agent-franky-bot')
+        render_service_name = os.getenv('RENDER_SERVICE_NAME', 'agentfranky')
         webhook_url = f"https://{render_service_name}.onrender.com/webhook"
         os.environ['WEBHOOK_URL'] = webhook_url
         print(f"🔗 Using constructed webhook URL: {webhook_url}")
