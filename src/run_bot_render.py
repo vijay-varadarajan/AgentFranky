@@ -49,7 +49,7 @@ def main():
     
     try:
         bot = TelegramResearchBot()
-        bot.run()
+        bot.run_webhook()
     except KeyboardInterrupt:
         print("\n👋 Bot stopped by user")
     except Exception as e:
