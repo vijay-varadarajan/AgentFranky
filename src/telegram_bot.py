@@ -513,7 +513,99 @@ Send me a topic to begin!
 
         # Run the bot
         print("🤖 Bot starting...")
-        application.run_polling()
+        
+        # Check if running on Render or in production
+        if os.getenv('RENDER') or os.getenv('RAILWAY') or os.getenv('HEROKU'):
+            print("🌐 Running in production mode with webhook...")
+            # For production, we'll use webhook mode instead of polling
+            self.run_webhook(application)
+        else:
+            print("🔄 Running in polling mode...")
+            application.run_polling()
+    
+    def run_webhook(self, application):
+        """Run bot with webhook for production deployment."""
+        from flask import Flask, request
+        import json
+        import asyncio
+        
+        # Create a simple Flask app to receive webhooks
+        app = Flask(__name__)
+        
+        @app.route('/webhook', methods=['POST'])
+        def webhook():
+            """Handle incoming webhook from Telegram."""
+            try:
+                # Get the update from Telegram
+                update_dict = request.get_json()
+                if update_dict:
+                    from telegram import Update
+                    update = Update.de_json(update_dict, application.bot)
+                    
+                    # Process the update in a new event loop
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        loop.run_until_complete(application.process_update(update))
+                    finally:
+                        loop.close()
+                        
+                return 'OK', 200
+            except Exception as e:
+                logger.error(f"Webhook error: {e}")
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
+                return 'ERROR', 500
+        
+        @app.route('/health', methods=['GET'])
+        def health():
+            """Health check endpoint for Render."""
+            return {'status': 'healthy', 'service': 'telegram-bot'}, 200
+        
+        @app.route('/', methods=['GET'])
+        def home():
+            """Home endpoint."""
+            return {'message': 'Agent Franky Telegram Bot is running!', 'status': 'active'}, 200
+        
+        # Set up webhook
+        webhook_url = os.getenv('WEBHOOK_URL', 'https://your-app.onrender.com/webhook')
+        print(f"🔗 Setting webhook URL: {webhook_url}")
+        
+        # Remove any existing webhook and set new one
+        async def setup_webhook():
+            try:
+                print("🗑️  Removing existing webhook...")
+                await application.bot.delete_webhook(drop_pending_updates=True)
+                await asyncio.sleep(2)
+                print("🔗 Setting new webhook...")
+                result = await application.bot.set_webhook(url=webhook_url)
+                if result:
+                    print("✅ Webhook set successfully")
+                else:
+                    print("❌ Failed to set webhook")
+                    
+                # Verify webhook
+                webhook_info = await application.bot.get_webhook_info()
+                print(f"📋 Webhook info: {webhook_info.url}")
+                print(f"📊 Pending updates: {webhook_info.pending_update_count}")
+                
+            except Exception as e:
+                logger.error(f"Error setting webhook: {e}")
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
+        
+        # Run webhook setup
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(setup_webhook())
+        loop.close()
+        
+        # Get port from environment (Render sets this)
+        port = int(os.getenv('PORT', 5000))
+        print(f"🚀 Starting Flask server on port {port}")
+        
+        # Run Flask app
+        app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
 
 if __name__ == '__main__':
     bot = TelegramResearchBot()
