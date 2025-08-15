@@ -175,8 +175,23 @@ const App = () => {
       // Parse the report content to extract sections
       const sections = parseReportSections(reportContent);
       
+      // Handle different ways jsPDF might be loaded
+      let jsPDF;
+      if (window.jspdf && window.jspdf.jsPDF) {
+        jsPDF = window.jspdf.jsPDF;
+      } else if (window.jsPDF) {
+        jsPDF = window.jsPDF;
+      } else {
+        // Try to import if using ES modules
+        try {
+          const jsPDFModule = await import('jspdf');
+          jsPDF = jsPDFModule.jsPDF || jsPDFModule.default;
+        } catch (importError) {
+          throw new Error('jsPDF library not found. Please ensure jsPDF is properly loaded.');
+        }
+      }
+      
       // Create PDF with better formatting
-      const { jsPDF } = window.jspdf;
       const pdf = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',
