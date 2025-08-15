@@ -26,6 +26,9 @@ class TelegramResearchBot:
         self.bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
         if not self.bot_token:
             raise ValueError("TELEGRAM_BOT_TOKEN not found in environment variables")
+        
+        # Initialize the application once during bot creation
+        self.application = None
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Send a message when the command /start is issued."""
@@ -502,29 +505,28 @@ Send me a topic to begin!
     def run(self):
         """Run the bot."""
         # Create application
-        application = Application.builder().token(self.bot_token).build()
+        self.application = Application.builder().token(self.bot_token).build()
 
         # Add handlers
-        application.add_handler(CommandHandler("start", self.start))
-        application.add_handler(CommandHandler("help", self.help_command))
-        application.add_handler(CommandHandler("new", self.new_research))
-        application.add_handler(CallbackQueryHandler(self.handle_callback))
-        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
+        self.application.add_handler(CommandHandler("start", self.start))
+        self.application.add_handler(CommandHandler("help", self.help_command))
+        self.application.add_handler(CommandHandler("new", self.new_research))
+        self.application.add_handler(CallbackQueryHandler(self.handle_callback))
+        self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
 
         # Run the bot
         print("🤖 Bot starting...")
         
         # Check if running on Render or in production
-        # Also check for PORT environment variable which Render always sets
         if os.getenv('RENDER') or os.getenv('RAILWAY') or os.getenv('HEROKU') or os.getenv('PORT'):
             print("🌐 Running in production mode with webhook...")
             # For production, we'll use webhook mode instead of polling
-            self.run_webhook(application)
+            self.run_webhook()
         else:
             print("🔄 Running in polling mode...")
-            application.run_polling()
+            self.application.run_polling()
     
-    def run_webhook(self, application):
+    def run_webhook(self):
         """Run bot with webhook for production deployment."""
         from flask import Flask, request
         import json
@@ -537,25 +539,34 @@ Send me a topic to begin!
         def webhook():
             """Handle incoming webhook from Telegram."""
             try:
+                print(f"[DEBUG] Webhook called: {request.method}")
+                
                 # Get the update from Telegram
                 update_dict = request.get_json()
-                if update_dict:
-                    from telegram import Update
-                    update = Update.de_json(update_dict, application.bot)
+                if not update_dict:
+                    print("[DEBUG] No update data received")
+                    return 'NO_DATA', 400
+                
+                print(f"[DEBUG] Processing update: {update_dict.get('update_id', 'unknown')}")
+                
+                from telegram import Update
+                update = Update.de_json(update_dict, self.application.bot)
+                
+                # Process the update using asyncio.run
+                try:
+                    asyncio.run(self.application.process_update(update))
+                    print("[DEBUG] Update processed successfully")
+                except Exception as process_error:
+                    print(f"[DEBUG] Error processing update: {process_error}")
+                    import traceback
+                    print(f"[DEBUG] Process traceback: {traceback.format_exc()}")
                     
-                    # Process the update in a new event loop
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    try:
-                        loop.run_until_complete(application.process_update(update))
-                    finally:
-                        loop.close()
-                        
                 return 'OK', 200
+                
             except Exception as e:
-                logger.error(f"Webhook error: {e}")
+                print(f"[DEBUG] Webhook error: {e}")
                 import traceback
-                logger.error(f"Traceback: {traceback.format_exc()}")
+                print(f"[DEBUG] Webhook traceback: {traceback.format_exc()}")
                 return 'ERROR', 500
         
         @app.route('/health', methods=['GET'])
@@ -568,38 +579,60 @@ Send me a topic to begin!
             """Home endpoint."""
             return {'message': 'Agent Franky Telegram Bot is running!', 'status': 'active'}, 200
         
-        # Set up webhook
-        webhook_url = os.getenv('WEBHOOK_URL', 'https://your-app.onrender.com/webhook')
-        print(f"🔗 Setting webhook URL: {webhook_url}")
+        @app.route('/debug', methods=['GET'])
+        def debug():
+            """Debug endpoint to check webhook status."""
+            return {
+                'webhook_url': os.getenv('WEBHOOK_URL'),
+                'port': os.getenv('PORT'),
+                'render_service': os.getenv('RENDER_SERVICE_NAME'),
+                'bot_initialized': self.application is not None,
+                'status': 'webhook_mode'
+            }, 200
         
-        # Remove any existing webhook and set new one
-        async def setup_webhook():
+        # Set up webhook with proper initialization
+        print("🔧 Initializing application...")
+        
+        async def setup_webhook_and_app():
             try:
-                print("🗑️  Removing existing webhook...")
-                await application.bot.delete_webhook(drop_pending_updates=True)
+                # Initialize the application properly
+                await self.application.initialize()
+                print("✅ Application initialized successfully")
+                
+                # Set up webhook
+                webhook_url = os.getenv('WEBHOOK_URL')
+                if not webhook_url:
+                    render_service_name = os.getenv('RENDER_SERVICE_NAME', 'agentfranky')
+                    webhook_url = f"https://{render_service_name}.onrender.com/webhook"
+                    print(f"🔗 Using constructed webhook URL: {webhook_url}")
+                else:
+                    print(f"🔗 Using provided webhook URL: {webhook_url}")
+                
+                print("🗑️ Removing existing webhook...")
+                await self.application.bot.delete_webhook(drop_pending_updates=True)
                 await asyncio.sleep(2)
+                
                 print("🔗 Setting new webhook...")
-                result = await application.bot.set_webhook(url=webhook_url)
+                result = await self.application.bot.set_webhook(url=webhook_url)
                 if result:
                     print("✅ Webhook set successfully")
                 else:
                     print("❌ Failed to set webhook")
                     
                 # Verify webhook
-                webhook_info = await application.bot.get_webhook_info()
+                webhook_info = await self.application.bot.get_webhook_info()
                 print(f"📋 Webhook info: {webhook_info.url}")
                 print(f"📊 Pending updates: {webhook_info.pending_update_count}")
                 
             except Exception as e:
-                logger.error(f"Error setting webhook: {e}")
+                logger.error(f"Error setting up webhook: {e}")
                 import traceback
                 logger.error(f"Traceback: {traceback.format_exc()}")
+                raise
         
         # Run webhook setup
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(setup_webhook())
-        loop.close()
+        print("🚀 Setting up webhook...")
+        asyncio.run(setup_webhook_and_app())
         
         # Get port from environment (Render sets this)
         port = int(os.getenv('PORT', 5000))
