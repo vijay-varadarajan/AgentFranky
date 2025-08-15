@@ -1,4 +1,4 @@
-# 🔬 ResearchAgent-v0
+# 🔬 AgentFranky
 
 <div align="center">
 
