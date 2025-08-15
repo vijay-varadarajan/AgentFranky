@@ -530,20 +530,17 @@ Send me a topic to begin!
         """Run bot with webhook for production deployment."""
         from flask import Flask, request
         import asyncio
+        import threading
 
         app = Flask(__name__)
 
-        # Build application if needed
         if self.application is None:
             self.application = Application.builder().token(self.bot_token).build()
 
-        async def setup_webhook_and_app():
+        async def setup_and_start():
             try:
                 await self.application.initialize()
                 print("✅ Application initialized successfully")
-
-                # Store loop reference
-                self.bot_loop = asyncio.get_running_loop()
 
                 webhook_url = os.getenv('WEBHOOK_URL')
                 if not webhook_url:
@@ -554,8 +551,7 @@ Send me a topic to begin!
                 await self.application.bot.delete_webhook(drop_pending_updates=True)
                 await asyncio.sleep(1)
 
-                result = await self.application.bot.set_webhook(url=webhook_url)
-                if result:
+                if await self.application.bot.set_webhook(url=webhook_url):
                     print("✅ Webhook set successfully")
                 else:
                     print("❌ Failed to set webhook")
@@ -564,39 +560,61 @@ Send me a topic to begin!
                 print(f"📋 Webhook info: {webhook_info.url}")
                 print(f"📊 Pending updates: {webhook_info.pending_update_count}")
 
-                # Start Application loop
                 await self.application.start()
+                await self.application.updater.start_polling()  # Needed to process updates
 
             except Exception as e:
-                logger.error(f"Error setting up webhook: {e}")
+                logger.error(f"Error in setup_and_start: {e}")
                 raise
 
-        @app.route('/webhook', methods=['POST'])
-        def webhook():
-            try:
-                update_dict = request.get_json()
-                if not update_dict:
-                    return 'NO_DATA', 400
+        def flask_thread(loop):
+            asyncio.set_event_loop(loop)
 
-                update = Update.de_json(update_dict, self.application.bot)
+            @app.route('/webhook', methods=['POST'])
+            def webhook():
+                try:
+                    update_dict = request.get_json()
+                    if not update_dict:
+                        return 'NO_DATA', 400
 
-                # Schedule coroutine in the stored loop
-                asyncio.run_coroutine_threadsafe(
-                    self.application.process_update(update),
-                    self.bot_loop
-                )
+                    update = Update.de_json(update_dict, self.application.bot)
+                    asyncio.run_coroutine_threadsafe(
+                        self.application.process_update(update),
+                        loop
+                    )
+                    return 'OK', 200
+                except Exception as e:
+                    logger.error(f"Webhook error: {e}")
+                    return 'ERROR', 500
 
-                return 'OK', 200
-            except Exception as e:
-                logger.error(f"Webhook error: {e}")
-                return 'ERROR', 500
+            @app.route('/health', methods=['GET'])
+            def health():
+                return {'status': 'healthy', 'service': 'telegram-bot'}, 200
 
-        # Run async setup before starting Flask
-        asyncio.run(setup_webhook_and_app())
+            @app.route('/', methods=['GET'])
+            def home():
+                return {'message': 'Agent Franky Telegram Bot is running!', 'status': 'active'}, 200
 
-        port = int(os.getenv('PORT', 5000))
-        print(f"🚀 Starting Flask server on port {port}")
-        app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
+            port = int(os.getenv('PORT', 5000))
+            app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
+
+        # Create a loop that stays open
+        loop = asyncio.new_event_loop()
+        self.bot_loop = loop
+
+        # Start Flask in a separate thread
+        threading.Thread(target=flask_thread, args=(loop,), daemon=True).start()
+
+        # Start bot loop in main thread
+        try:
+            loop.run_until_complete(setup_and_start())
+            loop.run_forever()
+        except KeyboardInterrupt:
+            print("🛑 Bot stopped by user")
+        finally:
+            loop.run_until_complete(self.application.stop())
+            loop.close()
+
 
 if __name__ == '__main__':
     bot = TelegramResearchBot()
