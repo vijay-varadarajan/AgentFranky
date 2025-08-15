@@ -4,7 +4,9 @@ import ReactMarkdown from 'react-markdown';
 import axios from 'axios';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
+import { HelmetProvider, Helmet } from 'react-helmet-async';
 import API_BASE_URL from './config';
+import SEOHead from './components/SEOHead';
 
 const App = () => {
   const [messages, setMessages] = useState([]);
@@ -706,64 +708,75 @@ const App = () => {
   );
 
   const WelcomeMessage = () => (
-    <div className="welcome-message">
-      <h2>🔬 Welcome to Agent Franky</h2>
-      <p>
-        I provide frank, evidence-based research reports on any topic. 
-        Simply enter your research topic below and I'll create a team of AI analysts 
-        to conduct in-depth research and provide you with detailed, frank evidence-based insights.
-      </p>
+    <section className="welcome-message" role="main" aria-labelledby="main-heading">
+      <header>
+        <h1 id="main-heading">🔬 Welcome to Agent Franky</h1>
+        <p className="hero-description">
+          I provide frankly evidence-based research reports on any topic. 
+          Simply enter your research topic below and I'll create a team of AI analysts 
+          to conduct in-depth research and provide you with detailed, frank evidence-based insights.
+        </p>
+      </header>
       
-      <div className="features-grid">
-        <div className="feature-card">
+      <section className="features-grid" aria-labelledby="features-heading">
+        <h2 id="features-heading" className="sr-only">Key Features</h2>
+        <article className="feature-card">
           <h3>🎯 Targeted Analysis</h3>
           <p>I create specialized AI analysts for different aspects of your topic</p>
-        </div>
-        <div className="feature-card">
+        </article>
+        <article className="feature-card">
           <h3>📊 Frank Evidence-Based Reports</h3>
           <p>Get detailed reports with frank evidence-based analysis, conclusions, and sources</p>
-        </div>
-        <div className="feature-card">
+        </article>
+        <article className="feature-card">
           <h3>🔄 Customizable Teams</h3>
           <p>Review and modify the analyst team before research begins</p>
-        </div>
-      </div>
-    </div>
+        </article>
+      </section>
+    </section>
   );
 
   return (
-    <div className="app">
-      <header className="header">
-        <h1>
-          <Search size={24} />
-          Agent Franky
-        </h1>
-        <a 
-          href="https://github.com/vijay-varadarajan/researchagent-v0" 
-          target="_blank" 
-          rel="noopener noreferrer"
-          className="github-link"
-          aria-label="View source code on GitHub"
-        >
-          <Github size={24} />
-        </a>
-      </header>
+    <HelmetProvider>
+      <div className="app">
+        <SEOHead />
+        
+        <header className="header" role="banner">
+          <div className="header-content">
+            <h1>
+              <Search size={24} aria-hidden="true" />
+              <span>Agent Franky</span>
+            </h1>
+            <nav role="navigation" aria-label="External links">
+              <a 
+                href="https://github.com/vijay-varadarajan/researchagent-v0" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="github-link"
+                aria-label="View Agent Franky source code on GitHub"
+                title="View source code on GitHub"
+              >
+                <Github size={24} aria-hidden="true" />
+                <span className="sr-only">GitHub Repository</span>
+              </a>
+            </nav>
+          </div>
+        </header>
 
-      <main className="chat-container">
-        {messages.length === 0 ? (
+        <main className="chat-container" role="main">{messages.length === 0 ? (
           <WelcomeMessage />
         ) : (
-          <div className="messages-container">
+          <section className="messages-container" aria-live="polite" aria-label="Research conversation">
             {messages.map((message) => (
-              <div key={message.id} className={`message ${message.type}`}>
-                <div className="message-avatar">
+              <article key={message.id} className={`message ${message.type}`} role="group">
+                <div className="message-avatar" aria-hidden="true">
                   {message.type === 'user' ? <User size={20} /> : <Bot size={20} />}
                 </div>
                 <div className="message-content">
                   {message.isLoading && <LoadingIndicator />}
                   {message.isError && (
-                    <div className="error-message">
-                      <AlertCircle size={16} />
+                    <div className="error-message" role="alert">
+                      <AlertCircle size={16} aria-hidden="true" />
                       {message.content}
                     </div>
                   )}
@@ -780,41 +793,56 @@ const App = () => {
                     </>
                   )}
                 </div>
-              </div>
+              </article>
             ))}
             <div ref={messagesEndRef} />
-          </div>
+          </section>
         )}
 
         {error && (
-          <div className="error-message">
-            <AlertCircle size={16} />
+          <div className="error-message" role="alert" aria-live="assertive">
+            <AlertCircle size={16} aria-hidden="true" />
             {error}
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="input-container">
-          <input
-            type="text"
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            placeholder={
-              currentSession?.state === 'awaiting_approval' 
-                ? "Provide feedback to modify the analyst team..." 
-                : "Enter your research topic (e.g., 'Machine Learning in Healthcare')"
-            }
-            className="input-field"
-            disabled={isLoading}
-          />
-          <button 
-            type="submit" 
-            className="send-button"
-            disabled={isLoading || !inputValue.trim()}
-          >
-            <Send size={18} />
-            {currentSession?.state === 'awaiting_approval' ? 'Send Feedback' : 'Start Research'}
-          </button>
-        </form>
+        <section className="input-section" aria-label="Research topic input">
+          <form onSubmit={handleSubmit} className="input-container" role="search">
+            <label htmlFor="research-input" className="sr-only">
+              {currentSession?.state === 'awaiting_approval' 
+                ? "Provide feedback to modify the analyst team" 
+                : "Enter your research topic"}
+            </label>
+            <input
+              id="research-input"
+              type="text"
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              placeholder={
+                currentSession?.state === 'awaiting_approval' 
+                  ? "Provide feedback to modify the analyst team..." 
+                  : "Enter your research topic (e.g., 'Machine Learning in Healthcare')"
+              }
+              className="input-field"
+              disabled={isLoading}
+              aria-describedby="input-help"
+            />
+            <div id="input-help" className="sr-only">
+              {currentSession?.state === 'awaiting_approval' 
+                ? "Enter feedback to modify the current analyst team based on your requirements"
+                : "Enter any research topic and Agent Franky will create a comprehensive evidence-based report"}
+            </div>
+            <button 
+              type="submit" 
+              className="send-button"
+              disabled={isLoading || !inputValue.trim()}
+              aria-label={currentSession?.state === 'awaiting_approval' ? 'Send feedback for analyst modification' : 'Start research on entered topic'}
+            >
+              <Send size={18} aria-hidden="true" />
+              <span>{currentSession?.state === 'awaiting_approval' ? 'Send Feedback' : 'Start Research'}</span>
+            </button>
+          </form>
+        </section>
       </main>
 
       {selectedAnalyst && (
@@ -823,7 +851,8 @@ const App = () => {
           onClose={() => setSelectedAnalyst(null)} 
         />
       )}
-    </div>
+      </div>
+    </HelmetProvider>
   );
 };
 
