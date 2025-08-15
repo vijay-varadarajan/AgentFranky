@@ -176,23 +176,33 @@ const App = () => {
       const sections = parseReportSections(reportContent);
       
       // Handle different ways jsPDF might be loaded
-      let jsPDF;
-      if (window.jspdf && window.jspdf.jsPDF) {
-        jsPDF = window.jspdf.jsPDF;
-      } else if (window.jsPDF) {
-        jsPDF = window.jsPDF;
-      } else {
-        // Try to import if using ES modules
-        try {
-          const jsPDFModule = await import('jspdf');
-          jsPDF = jsPDFModule.jsPDF || jsPDFModule.default;
-        } catch (importError) {
-          throw new Error('jsPDF library not found. Please ensure jsPDF is properly loaded.');
+      let PDFConstructor;
+      
+      // Check if jsPDF is available globally (most common scenarios)
+      if (typeof window !== 'undefined') {
+        if (window.jsPDF) {
+          PDFConstructor = window.jsPDF;
+        } else if (window.jspdf && window.jspdf.jsPDF) {
+          PDFConstructor = window.jspdf.jsPDF;
         }
       }
       
+      // If not found globally, try dynamic import
+      if (!PDFConstructor) {
+        try {
+          const jsPDFModule = await import('jspdf');
+          PDFConstructor = jsPDFModule.jsPDF || jsPDFModule.default;
+        } catch (importError) {
+          throw new Error('jsPDF library not found. Please install jsPDF using: npm install jspdf');
+        }
+      }
+      
+      if (!PDFConstructor) {
+        throw new Error('jsPDF constructor not available. Make sure jsPDF is properly loaded.');
+      }
+      
       // Create PDF with better formatting
-      const pdf = new jsPDF({
+      const pdf = new PDFConstructor({
         orientation: 'portrait',
         unit: 'mm',
         format: 'a4',
@@ -451,48 +461,156 @@ const App = () => {
   // Helper function to parse report sections
   const parseReportSections = (content) => {
     const sections = {};
-    
-    // Simple parsing - you may need to adjust based on your content structure
     const lines = content.split('\n');
+    
+    // Find the title (first non-empty line)
+    let titleFound = false;
     let currentSection = '';
     let currentContent = '';
+    let introStarted = false;
+    let bodyStarted = false;
+    let conclusionStarted = false;
+    let sourcesStarted = false;
     
-    for (const line of lines) {
-      if (line.toLowerCase().includes('title') || line.startsWith('# ')) {
-        if (currentSection) sections[currentSection] = currentContent.trim();
-        currentSection = 'title';
-        currentContent = line.replace(/^#\s*/, '').replace(/title:/i, '').trim();
-      } else if (line.toLowerCase().includes('introduction') || line.startsWith('## Introduction')) {
-        if (currentSection) sections[currentSection] = currentContent.trim();
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      
+      // Skip empty lines at the beginning
+      if (!line && !titleFound) continue;
+      
+      // Get title (first non-empty line)
+      if (!titleFound && line) {
+        sections.title = line;
+        titleFound = true;
+        continue;
+      }
+      
+      // Check for section headers
+      if (line.toLowerCase() === 'introduction') {
+        if (currentSection && currentContent.trim()) {
+          sections[currentSection] = currentContent.trim();
+        }
         currentSection = 'introduction';
         currentContent = '';
-      } else if (line.toLowerCase().includes('body') || line.toLowerCase().includes('main content') || line.startsWith('## ')) {
-        if (currentSection && currentSection !== 'introduction') {
-          if (currentSection) sections[currentSection] = currentContent.trim();
-          currentSection = 'body';
-          currentContent = line.startsWith('## ') ? '' : line;
-        } else if (currentSection === 'introduction') {
-          if (currentSection) sections[currentSection] = currentContent.trim();
-          currentSection = 'body';
-          currentContent = line;
-        } else {
-          currentContent += '\n' + line;
+        introStarted = true;
+        continue;
+      }
+      
+      if (line.toLowerCase() === 'conclusion') {
+        if (currentSection && currentContent.trim()) {
+          sections[currentSection] = currentContent.trim();
         }
-      } else if (line.toLowerCase().includes('conclusion') || line.startsWith('## Conclusion')) {
-        if (currentSection) sections[currentSection] = currentContent.trim();
         currentSection = 'conclusion';
         currentContent = '';
-      } else if (line.toLowerCase().includes('sources') || line.toLowerCase().includes('references') || line.startsWith('## References')) {
-        if (currentSection) sections[currentSection] = currentContent.trim();
+        conclusionStarted = true;
+        continue;
+      }
+      
+      if (line.toLowerCase() === 'sources' || line.toLowerCase() === 'references') {
+        if (currentSection && currentContent.trim()) {
+          sections[currentSection] = currentContent.trim();
+        }
         currentSection = 'sources';
         currentContent = '';
-      } else {
-        currentContent += '\n' + line;
+        sourcesStarted = true;
+        continue;
+      }
+      
+      // Handle content based on current state
+      if (introStarted && !bodyStarted && !conclusionStarted && !sourcesStarted) {
+        if (currentSection === 'introduction') {
+          currentContent += (currentContent ? '\n' : '') + line;
+        }
+      } else if (introStarted && !conclusionStarted && !sourcesStarted) {
+        // We're in the body section (between introduction and conclusion)
+        if (currentSection !== 'body') {
+          if (currentSection && currentContent.trim()) {
+            sections[currentSection] = currentContent.trim();
+          }
+          currentSection = 'body';
+          currentContent = '';
+          bodyStarted = true;
+        }
+        currentContent += (currentContent ? '\n' : '') + line;
+      } else if (conclusionStarted && !sourcesStarted) {
+        if (currentSection === 'conclusion') {
+          currentContent += (currentContent ? '\n' : '') + line;
+        }
+      } else if (sourcesStarted) {
+        if (currentSection === 'sources') {
+          currentContent += (currentContent ? '\n' : '') + line;
+        }
+      } else if (titleFound && !introStarted) {
+        // This might be content before introduction section
+        if (currentSection !== 'body') {
+          currentSection = 'body';
+          currentContent = '';
+        }
+        currentContent += (currentContent ? '\n' : '') + line;
       }
     }
     
-    // Don't forget the last section
-    if (currentSection) sections[currentSection] = currentContent.trim();
+    // Save the last section
+    if (currentSection && currentContent.trim()) {
+      sections[currentSection] = currentContent.trim();
+    }
+    
+    // If no explicit sections found, treat everything after title as body
+    if (!sections.introduction && !sections.conclusion && !sections.sources && sections.body) {
+      const bodyContent = sections.body;
+      const bodyLines = bodyContent.split('\n');
+      
+      // Try to identify sections within the body
+      let tempIntro = '';
+      let tempBody = '';
+      let tempConclusion = '';
+      let tempSources = '';
+      let currentTempSection = 'intro';
+      
+      for (const bodyLine of bodyLines) {
+        const lowerLine = bodyLine.toLowerCase().trim();
+        
+        if (lowerLine.includes('conclusion') && bodyLine.trim().length < 50) {
+          currentTempSection = 'conclusion';
+          continue;
+        }
+        if (lowerLine.includes('sources') || lowerLine.includes('references')) {
+          currentTempSection = 'sources';
+          continue;
+        }
+        
+        // Add content to appropriate section
+        if (currentTempSection === 'intro') {
+          tempIntro += (tempIntro ? '\n' : '') + bodyLine;
+        } else if (currentTempSection === 'conclusion') {
+          tempConclusion += (tempConclusion ? '\n' : '') + bodyLine;
+        } else if (currentTempSection === 'sources') {
+          tempSources += (tempSources ? '\n' : '') + bodyLine;
+        }
+      }
+      
+      // Split intro and body more intelligently
+      const introLines = tempIntro.split('\n');
+      let introEnd = Math.min(introLines.length, 3); // First few paragraphs as intro
+      
+      // Find a natural break point
+      for (let i = 1; i < Math.min(introLines.length, 8); i++) {
+        if (introLines[i].trim() === '' && introLines[i + 1] && introLines[i + 1].trim()) {
+          introEnd = i;
+          break;
+        }
+      }
+      
+      sections.introduction = introLines.slice(0, introEnd).join('\n').trim();
+      sections.body = introLines.slice(introEnd).join('\n').trim();
+      
+      if (tempConclusion.trim()) {
+        sections.conclusion = tempConclusion.trim();
+      }
+      if (tempSources.trim()) {
+        sections.sources = tempSources.trim();
+      }
+    }
     
     return sections;
   };
