@@ -529,79 +529,51 @@ Send me a topic to begin!
     def run_webhook(self):
         """Run bot with webhook for production deployment."""
         from flask import Flask, request
-        import json
         import asyncio
-        
-        # Create a simple Flask app to receive webhooks
+        import logging
+
         app = Flask(__name__)
 
-        if self.application is None:
-            self.application = Application.builder().token(self.bot_token).build()
-        
         @app.route('/webhook', methods=['POST'])
         def webhook():
             """Handle incoming webhook from Telegram."""
             try:
-                print(f"[DEBUG] Webhook called: {request.method}")
-                
                 update_dict = request.get_json()
                 if not update_dict:
-                    print("[DEBUG] No update data received")
                     return 'NO_DATA', 400
-                
-                print(f"[DEBUG] Processing update: {update_dict.get('update_id', 'unknown')}")
-                update = Update.de_json(update_dict, self.application.bot)
-                
-                # Instead of asyncio.run(...) — schedule on existing loop
-                try:
-                    loop = asyncio.get_event_loop()
-                except RuntimeError:
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                
-                loop.create_task(self.application.process_update(update))
-                print("[DEBUG] Update scheduled successfully")
-                
-                return 'OK', 200
-                
-            except Exception as e:
-                print(f"[DEBUG] Webhook error: {e}")
-                import traceback
-                print(f"[DEBUG] Webhook traceback: {traceback.format_exc()}")
-                return 'ERROR', 500
 
+                update = Update.de_json(update_dict, self.application.bot)
+
+                # Schedule update processing on the bot's running loop
+                asyncio.run_coroutine_threadsafe(
+                    self.application.process_update(update),
+                    self.application.loop
+                )
+
+                return 'OK', 200
+            except Exception as e:
+                logging.error(f"Webhook error: {e}")
+                return 'ERROR', 500
 
         @app.route('/health', methods=['GET'])
         def health():
-            """Health check endpoint for Render."""
             return {'status': 'healthy', 'service': 'telegram-bot'}, 200
-        
+
         @app.route('/', methods=['GET'])
         def home():
-            """Home endpoint."""
             return {'message': 'Agent Franky Telegram Bot is running!', 'status': 'active'}, 200
-        
-        @app.route('/debug', methods=['GET'])
-        def debug():
-            """Debug endpoint to check webhook status."""
-            return {
-                'webhook_url': os.getenv('WEBHOOK_URL'),
-                'port': os.getenv('PORT'),
-                'render_service': os.getenv('RENDER_SERVICE_NAME'),
-                'bot_initialized': self.application is not None,
-                'status': 'webhook_mode'
-            }, 200
-        
-        # Set up webhook with proper initialization
-        print("🔧 Initializing application...")
-        
+
+        # Build the Application if it's not already
+        if self.application is None:
+            self.application = Application.builder().token(self.bot_token).build()
+
         async def setup_webhook_and_app():
             try:
-                # Initialize the application properly
+                # Initialize bot
                 await self.application.initialize()
                 print("✅ Application initialized successfully")
-                
-                # Set up webhook
+
+                # Set webhook
                 webhook_url = os.getenv('WEBHOOK_URL')
                 if not webhook_url:
                     render_service_name = os.getenv('RENDER_SERVICE_NAME', 'agentfranky')
@@ -609,30 +581,38 @@ Send me a topic to begin!
                     print(f"🔗 Using constructed webhook URL: {webhook_url}")
                 else:
                     print(f"🔗 Using provided webhook URL: {webhook_url}")
-                
+
                 print("🗑️ Removing existing webhook...")
                 await self.application.bot.delete_webhook(drop_pending_updates=True)
-                await asyncio.sleep(2)
-                
+                await asyncio.sleep(1)
+
                 print("🔗 Setting new webhook...")
                 result = await self.application.bot.set_webhook(url=webhook_url)
                 if result:
                     print("✅ Webhook set successfully")
                 else:
                     print("❌ Failed to set webhook")
-                    
-                # Verify webhook
+
                 webhook_info = await self.application.bot.get_webhook_info()
                 print(f"📋 Webhook info: {webhook_info.url}")
                 print(f"📊 Pending updates: {webhook_info.pending_update_count}")
 
+                # Start the bot loop so updates are processed
+                print("▶️ Starting bot application loop...")
                 await self.application.start()
-                
+
             except Exception as e:
                 logger.error(f"Error setting up webhook: {e}")
-                import traceback
-                logger.error(f"Traceback: {traceback.format_exc()}")
                 raise
+
+        # Run webhook setup
+        asyncio.run(setup_webhook_and_app())
+
+        # Start Flask server
+        port = int(os.getenv('PORT', 5000))
+        print(f"🚀 Starting Flask server on port {port}")
+        app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
+
         
         # Run webhook setup
         print("🚀 Setting up webhook...")
