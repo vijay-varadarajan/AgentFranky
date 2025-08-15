@@ -541,26 +541,24 @@ Send me a topic to begin!
             try:
                 print(f"[DEBUG] Webhook called: {request.method}")
                 
-                # Get the update from Telegram
                 update_dict = request.get_json()
                 if not update_dict:
                     print("[DEBUG] No update data received")
                     return 'NO_DATA', 400
                 
                 print(f"[DEBUG] Processing update: {update_dict.get('update_id', 'unknown')}")
-                
-                from telegram import Update
                 update = Update.de_json(update_dict, self.application.bot)
                 
-                # Process the update using asyncio.run
+                # Instead of asyncio.run(...) — schedule on existing loop
                 try:
-                    asyncio.run(self.application.process_update(update))
-                    print("[DEBUG] Update processed successfully")
-                except Exception as process_error:
-                    print(f"[DEBUG] Error processing update: {process_error}")
-                    import traceback
-                    print(f"[DEBUG] Process traceback: {traceback.format_exc()}")
-                    
+                    loop = asyncio.get_event_loop()
+                except RuntimeError:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                
+                loop.create_task(self.application.process_update(update))
+                print("[DEBUG] Update scheduled successfully")
+                
                 return 'OK', 200
                 
             except Exception as e:
@@ -568,7 +566,8 @@ Send me a topic to begin!
                 import traceback
                 print(f"[DEBUG] Webhook traceback: {traceback.format_exc()}")
                 return 'ERROR', 500
-        
+
+
         @app.route('/health', methods=['GET'])
         def health():
             """Health check endpoint for Render."""
