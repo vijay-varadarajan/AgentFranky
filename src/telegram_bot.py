@@ -515,7 +515,8 @@ Send me a topic to begin!
         print("🤖 Bot starting...")
         
         # Check if running on Render or in production
-        if os.getenv('RENDER') or os.getenv('RAILWAY') or os.getenv('HEROKU'):
+        # Also check for PORT environment variable which Render always sets
+        if os.getenv('RENDER') or os.getenv('RAILWAY') or os.getenv('HEROKU') or os.getenv('PORT'):
             print("🌐 Running in production mode with webhook...")
             # For production, we'll use webhook mode instead of polling
             self.run_webhook(application)
