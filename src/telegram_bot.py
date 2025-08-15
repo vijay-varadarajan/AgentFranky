@@ -534,6 +534,9 @@ Send me a topic to begin!
         
         # Create a simple Flask app to receive webhooks
         app = Flask(__name__)
+
+        if self.application is None:
+            self.application = Application.builder().token(self.bot_token).build()
         
         @app.route('/webhook', methods=['POST'])
         def webhook():
