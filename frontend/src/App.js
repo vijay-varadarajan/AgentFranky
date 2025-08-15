@@ -172,61 +172,314 @@ const App = () => {
 
   const downloadReportAsPDF = async (reportContent) => {
     try {
-      // Create a temporary element to render the markdown
-      const tempDiv = document.createElement('div');
-      tempDiv.style.position = 'absolute';
-      tempDiv.style.left = '-9999px';
-      tempDiv.style.width = '800px';
-      tempDiv.style.padding = '20px';
-      tempDiv.style.fontFamily = 'Arial, sans-serif';
-      tempDiv.style.backgroundColor = 'white';
-      tempDiv.style.color = 'black';
+      // Parse the report content to extract sections
+      const sections = parseReportSections(reportContent);
       
-      // Convert markdown to HTML (simple conversion)
-      const htmlContent = reportContent
-        .replace(/^# (.*$)/gim, '<h1>$1</h1>')
-        .replace(/^## (.*$)/gim, '<h2>$1</h2>')
-        .replace(/^### (.*$)/gim, '<h3>$1</h3>')
-        .replace(/\*\*(.*)\*\*/gim, '<strong>$1</strong>')
-        .replace(/\*(.*)\*/gim, '<em>$1</em>')
-        .replace(/\n/gim, '<br>');
-      
-      tempDiv.innerHTML = htmlContent;
-      document.body.appendChild(tempDiv);
-      
-      // Create PDF
-      const canvas = await html2canvas(tempDiv, {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: '#ffffff'
+      // Create PDF with better formatting
+      const { jsPDF } = window.jspdf;
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4',
+        compress: true
       });
       
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF();
-      const imgWidth = 190;
-      const pageHeight = 297;
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-      let heightLeft = imgHeight;
-      let position = 10;
+      // PDF configuration
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const margin = 20;
+      const contentWidth = pageWidth - (margin * 2);
+      let currentY = margin;
       
-      pdf.addImage(imgData, 'PNG', 10, position, imgWidth, imgHeight);
-      heightLeft -= pageHeight;
+      // Color scheme
+      const colors = {
+        primary: [41, 128, 185], // Professional blue
+        secondary: [52, 73, 94], // Dark gray
+        text: [44, 62, 80], // Darker text
+        light: [236, 240, 241], // Light background
+        accent: [231, 76, 60] // Red for emphasis
+      };
       
-      while (heightLeft >= 0) {
-        position = heightLeft - imgHeight + 10;
+      // Helper function to add a new page if needed
+      const checkPageBreak = (requiredHeight) => {
+        if (currentY + requiredHeight > pageHeight - margin) {
+          pdf.addPage();
+          currentY = margin;
+          return true;
+        }
+        return false;
+      };
+      
+      // Helper function to add text with proper wrapping
+      const addText = (text, fontSize, fontStyle = 'normal', color = colors.text, maxWidth = contentWidth) => {
+        pdf.setFontSize(fontSize);
+        pdf.setFont('helvetica', fontStyle);
+        pdf.setTextColor(...color);
+        
+        const lines = pdf.splitTextToSize(text, maxWidth);
+        const lineHeight = fontSize * 0.4;
+        
+        checkPageBreak(lines.length * lineHeight);
+        
+        lines.forEach((line, index) => {
+          pdf.text(line, margin, currentY + (index * lineHeight));
+        });
+        
+        currentY += lines.length * lineHeight;
+        return lines.length;
+      };
+      
+      // Add header with company branding (optional)
+      const addHeader = () => {
+        // Add a subtle header line
+        pdf.setDrawColor(...colors.primary);
+        pdf.setLineWidth(0.5);
+        pdf.line(margin, 15, pageWidth - margin, 15);
+        
+        // Add page number
+        pdf.setFontSize(8);
+        pdf.setFont('helvetica', 'normal');
+        pdf.setTextColor(100, 100, 100);
+        const pageNum = pdf.internal.getCurrentPageInfo().pageNumber;
+        pdf.text(`Page ${pageNum}`, pageWidth - margin - 20, 12);
+      };
+      
+      // Add footer
+      const addFooter = () => {
+        const footerY = pageHeight - 15;
+        pdf.setDrawColor(...colors.light);
+        pdf.setLineWidth(0.3);
+        pdf.line(margin, footerY, pageWidth - margin, footerY);
+        
+        pdf.setFontSize(8);
+        pdf.setTextColor(120, 120, 120);
+        pdf.text('Generated on ' + new Date().toLocaleDateString(), margin, footerY + 5);
+      };
+      
+      // 1. Title Page
+      if (sections.title) {
+        // Center the title
+        pdf.setFontSize(28);
+        pdf.setFont('helvetica', 'bold');
+        pdf.setTextColor(...colors.primary);
+        
+        const titleLines = pdf.splitTextToSize(sections.title, contentWidth);
+        const titleHeight = titleLines.length * 12;
+        const titleStartY = (pageHeight / 2) - (titleHeight / 2);
+        
+        titleLines.forEach((line, index) => {
+          const textWidth = pdf.getTextWidth(line);
+          const x = (pageWidth - textWidth) / 2;
+          pdf.text(line, x, titleStartY + (index * 12));
+        });
+        
+        // Add a decorative line under title
+        pdf.setDrawColor(...colors.primary);
+        pdf.setLineWidth(1);
+        pdf.line(pageWidth/4, titleStartY + titleHeight + 10, 3*pageWidth/4, titleStartY + titleHeight + 10);
+        
+        // Add generation date
+        pdf.setFontSize(12);
+        pdf.setFont('helvetica', 'normal');
+        pdf.setTextColor(...colors.secondary);
+        const dateText = 'Generated on ' + new Date().toLocaleDateString('en-US', {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric'
+        });
+        const dateWidth = pdf.getTextWidth(dateText);
+        pdf.text(dateText, (pageWidth - dateWidth) / 2, titleStartY + titleHeight + 30);
+        
+        // Start new page for content
         pdf.addPage();
-        pdf.addImage(imgData, 'PNG', 10, position, imgWidth, imgHeight);
-        heightLeft -= pageHeight;
+        currentY = margin;
       }
       
-      pdf.save('research-report.pdf');
+      // Add headers and footers to all pages
+      const totalPages = pdf.internal.getNumberOfPages();
+      for (let i = 1; i <= totalPages; i++) {
+        pdf.setPage(i);
+        if (i > 1) { // Skip header/footer on title page
+          addHeader();
+          addFooter();
+        }
+      }
       
-      // Clean up
-      document.body.removeChild(tempDiv);
+      // Go to content page
+      if (sections.title) {
+        pdf.setPage(2);
+        currentY = margin + 10; // Start below header
+      }
+      
+      // 2. Table of Contents (if multiple sections)
+      const hasSections = sections.introduction || sections.body || sections.conclusion;
+      if (hasSections) {
+        addText('Table of Contents', 18, 'bold', colors.primary);
+        currentY += 5;
+        
+        // Add TOC entries
+        pdf.setFontSize(11);
+        pdf.setFont('helvetica', 'normal');
+        pdf.setTextColor(...colors.text);
+        
+        const tocEntries = [];
+        if (sections.introduction) tocEntries.push('Introduction');
+        if (sections.body) tocEntries.push('Main Content');
+        if (sections.conclusion) tocEntries.push('Conclusion');
+        if (sections.sources) tocEntries.push('References');
+        
+        tocEntries.forEach((entry, index) => {
+          checkPageBreak(8);
+          pdf.text(`${index + 1}. ${entry}`, margin + 5, currentY);
+          currentY += 8;
+        });
+        
+        currentY += 15;
+      }
+      
+      // 3. Introduction
+      if (sections.introduction) {
+        checkPageBreak(20);
+        addText('Introduction', 16, 'bold', colors.primary);
+        currentY += 8;
+        
+        addText(sections.introduction, 11, 'normal', colors.text);
+        currentY += 12;
+      }
+      
+      // 4. Main Body
+      if (sections.body) {
+        checkPageBreak(20);
+        addText('Main Content', 16, 'bold', colors.primary);
+        currentY += 8;
+        
+        // Process body content with better formatting
+        const bodyParagraphs = sections.body.split('\n\n').filter(p => p.trim());
+        
+        bodyParagraphs.forEach((paragraph, index) => {
+          // Check if it's a heading
+          if (paragraph.startsWith('###')) {
+            currentY += 5;
+            addText(paragraph.replace('###', '').trim(), 13, 'bold', colors.secondary);
+            currentY += 5;
+          } else if (paragraph.startsWith('##')) {
+            currentY += 8;
+            addText(paragraph.replace('##', '').trim(), 14, 'bold', colors.primary);
+            currentY += 6;
+          } else {
+            // Regular paragraph
+            addText(paragraph.trim(), 11, 'normal', colors.text);
+            currentY += 6; // Space between paragraphs
+          }
+        });
+        
+        currentY += 12;
+      }
+      
+      // 5. Conclusion
+      if (sections.conclusion) {
+        checkPageBreak(20);
+        addText('Conclusion', 16, 'bold', colors.primary);
+        currentY += 8;
+        
+        addText(sections.conclusion, 11, 'normal', colors.text);
+        currentY += 12;
+      }
+      
+      // 6. Sources/References
+      if (sections.sources) {
+        checkPageBreak(20);
+        addText('References', 16, 'bold', colors.primary);
+        currentY += 8;
+        
+        // Format sources as a proper bibliography
+        const sourcesList = sections.sources.split('\n').filter(s => s.trim());
+        sourcesList.forEach((source, index) => {
+          if (source.trim()) {
+            checkPageBreak(12);
+            const cleanSource = source.replace(/^\d+\.\s*/, '').replace(/^[-*]\s*/, '');
+            addText(`${index + 1}. ${cleanSource}`, 10, 'normal', colors.text);
+            currentY += 4;
+          }
+        });
+      }
+      
+      // Final page numbering update
+      const finalTotalPages = pdf.internal.getNumberOfPages();
+      for (let i = 1; i <= finalTotalPages; i++) {
+        pdf.setPage(i);
+        if (i > 1) {
+          // Update page numbers
+          pdf.setFontSize(8);
+          pdf.setTextColor(100, 100, 100);
+          // Clear previous page number
+          pdf.setFillColor(255, 255, 255);
+          pdf.rect(pageWidth - margin - 25, 8, 25, 8, 'F');
+          // Add new page number
+          pdf.text(`Page ${i} of ${finalTotalPages}`, pageWidth - margin - 24, 12);
+        }
+      }
+      
+      // Save the PDF
+      const fileName = sections.title 
+        ? `${sections.title.substring(0, 50).replace(/[^a-zA-Z0-9]/g, '-')}.pdf`
+        : 'research-report.pdf';
+      
+      pdf.save(fileName);
+      
     } catch (error) {
       console.error('Error generating PDF:', error);
-      alert('Error generating PDF. Please try again.');
+      throw new Error('Failed to generate PDF. Please check your content and try again.');
     }
+  };
+
+  // Helper function to parse report sections
+  const parseReportSections = (content) => {
+    const sections = {};
+    
+    // Simple parsing - you may need to adjust based on your content structure
+    const lines = content.split('\n');
+    let currentSection = '';
+    let currentContent = '';
+    
+    for (const line of lines) {
+      if (line.toLowerCase().includes('title') || line.startsWith('# ')) {
+        if (currentSection) sections[currentSection] = currentContent.trim();
+        currentSection = 'title';
+        currentContent = line.replace(/^#\s*/, '').replace(/title:/i, '').trim();
+      } else if (line.toLowerCase().includes('introduction') || line.startsWith('## Introduction')) {
+        if (currentSection) sections[currentSection] = currentContent.trim();
+        currentSection = 'introduction';
+        currentContent = '';
+      } else if (line.toLowerCase().includes('body') || line.toLowerCase().includes('main content') || line.startsWith('## ')) {
+        if (currentSection && currentSection !== 'introduction') {
+          if (currentSection) sections[currentSection] = currentContent.trim();
+          currentSection = 'body';
+          currentContent = line.startsWith('## ') ? '' : line;
+        } else if (currentSection === 'introduction') {
+          if (currentSection) sections[currentSection] = currentContent.trim();
+          currentSection = 'body';
+          currentContent = line;
+        } else {
+          currentContent += '\n' + line;
+        }
+      } else if (line.toLowerCase().includes('conclusion') || line.startsWith('## Conclusion')) {
+        if (currentSection) sections[currentSection] = currentContent.trim();
+        currentSection = 'conclusion';
+        currentContent = '';
+      } else if (line.toLowerCase().includes('sources') || line.toLowerCase().includes('references') || line.startsWith('## References')) {
+        if (currentSection) sections[currentSection] = currentContent.trim();
+        currentSection = 'sources';
+        currentContent = '';
+      } else {
+        currentContent += '\n' + line;
+      }
+    }
+    
+    // Don't forget the last section
+    if (currentSection) sections[currentSection] = currentContent.trim();
+    
+    return sections;
   };
 
   const AnalystModal = ({ analyst, onClose }) => (
