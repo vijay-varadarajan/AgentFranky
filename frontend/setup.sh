@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# Research Assistant Frontend Setup Script
+# Agent Franky Frontend Setup Script
 
-echo "🔬 AI Research Assistant - Frontend Setup"
+echo "🔬 Agent Franky - Frontend Setup"
 echo "=========================================="
 
 # Function to check if command exists

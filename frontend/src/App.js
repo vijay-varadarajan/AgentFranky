@@ -707,11 +707,11 @@ const App = () => {
 
   const WelcomeMessage = () => (
     <div className="welcome-message">
-      <h2>🔬 Welcome to AI Research Assistant</h2>
+      <h2>🔬 Welcome to Agent Franky</h2>
       <p>
-        I can help you create comprehensive research reports on any topic. 
+        I provide frank, evidence-based research reports on any topic. 
         Simply enter your research topic below and I'll create a team of AI analysts 
-        to conduct in-depth research and provide you with a detailed report.
+        to conduct in-depth research and provide you with detailed, frank evidence-based insights.
       </p>
       
       <div className="features-grid">
@@ -720,8 +720,8 @@ const App = () => {
           <p>I create specialized AI analysts for different aspects of your topic</p>
         </div>
         <div className="feature-card">
-          <h3>📊 Comprehensive Reports</h3>
-          <p>Get detailed reports with introduction, analysis, conclusion, and sources</p>
+          <h3>📊 Frank Evidence-Based Reports</h3>
+          <p>Get detailed reports with frank evidence-based analysis, conclusions, and sources</p>
         </div>
         <div className="feature-card">
           <h3>🔄 Customizable Teams</h3>
@@ -736,7 +736,7 @@ const App = () => {
       <header className="header">
         <h1>
           <Search size={24} />
-          AI Research Assistant
+          Agent Franky
         </h1>
         <a 
           href="https://github.com/vijay-varadarajan/researchagent-v0" 

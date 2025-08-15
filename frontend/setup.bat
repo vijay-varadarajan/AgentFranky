@@ -1,7 +1,7 @@
 @echo off
-REM Research Assistant Frontend Setup Script for Windows
+REM Agent Franky Frontend Setup Script for Windows
 
-echo 🔬 AI Research Assistant - Frontend Setup
+echo 🔬 Agent Franky - Frontend Setup
 echo ==========================================
 
 REM Check if Node.js is installed
