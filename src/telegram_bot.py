@@ -530,63 +530,30 @@ Send me a topic to begin!
         """Run bot with webhook for production deployment."""
         from flask import Flask, request
         import asyncio
-        import logging
 
         app = Flask(__name__)
 
-        @app.route('/webhook', methods=['POST'])
-        def webhook():
-            """Handle incoming webhook from Telegram."""
-            try:
-                update_dict = request.get_json()
-                if not update_dict:
-                    return 'NO_DATA', 400
-
-                update = Update.de_json(update_dict, self.application.bot)
-
-                # Schedule update processing on the bot's running loop
-                asyncio.run_coroutine_threadsafe(
-                    self.application.process_update(update),
-                    self.application.loop
-                )
-
-                return 'OK', 200
-            except Exception as e:
-                logging.error(f"Webhook error: {e}")
-                return 'ERROR', 500
-
-        @app.route('/health', methods=['GET'])
-        def health():
-            return {'status': 'healthy', 'service': 'telegram-bot'}, 200
-
-        @app.route('/', methods=['GET'])
-        def home():
-            return {'message': 'Agent Franky Telegram Bot is running!', 'status': 'active'}, 200
-
-        # Build the Application if it's not already
+        # Build application if needed
         if self.application is None:
             self.application = Application.builder().token(self.bot_token).build()
 
         async def setup_webhook_and_app():
             try:
-                # Initialize bot
                 await self.application.initialize()
                 print("✅ Application initialized successfully")
 
-                # Set webhook
+                # Store loop reference
+                self.bot_loop = asyncio.get_running_loop()
+
                 webhook_url = os.getenv('WEBHOOK_URL')
                 if not webhook_url:
                     render_service_name = os.getenv('RENDER_SERVICE_NAME', 'agentfranky')
                     webhook_url = f"https://{render_service_name}.onrender.com/webhook"
-                    print(f"🔗 Using constructed webhook URL: {webhook_url}")
-                else:
-                    print(f"🔗 Using provided webhook URL: {webhook_url}")
+                print(f"🔗 Using webhook URL: {webhook_url}")
 
-                print("🗑️ Removing existing webhook...")
                 await self.application.bot.delete_webhook(drop_pending_updates=True)
                 await asyncio.sleep(1)
 
-                print("🔗 Setting new webhook...")
                 result = await self.application.bot.set_webhook(url=webhook_url)
                 if result:
                     print("✅ Webhook set successfully")
@@ -597,32 +564,38 @@ Send me a topic to begin!
                 print(f"📋 Webhook info: {webhook_info.url}")
                 print(f"📊 Pending updates: {webhook_info.pending_update_count}")
 
-                # Start the bot loop so updates are processed
-                print("▶️ Starting bot application loop...")
+                # Start Application loop
                 await self.application.start()
 
             except Exception as e:
                 logger.error(f"Error setting up webhook: {e}")
                 raise
 
-        # Run webhook setup
+        @app.route('/webhook', methods=['POST'])
+        def webhook():
+            try:
+                update_dict = request.get_json()
+                if not update_dict:
+                    return 'NO_DATA', 400
+
+                update = Update.de_json(update_dict, self.application.bot)
+
+                # Schedule coroutine in the stored loop
+                asyncio.run_coroutine_threadsafe(
+                    self.application.process_update(update),
+                    self.bot_loop
+                )
+
+                return 'OK', 200
+            except Exception as e:
+                logger.error(f"Webhook error: {e}")
+                return 'ERROR', 500
+
+        # Run async setup before starting Flask
         asyncio.run(setup_webhook_and_app())
 
-        # Start Flask server
         port = int(os.getenv('PORT', 5000))
         print(f"🚀 Starting Flask server on port {port}")
-        app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
-
-        
-        # Run webhook setup
-        print("🚀 Setting up webhook...")
-        asyncio.run(setup_webhook_and_app())
-        
-        # Get port from environment (Render sets this)
-        port = int(os.getenv('PORT', 5000))
-        print(f"🚀 Starting Flask server on port {port}")
-        
-        # Run Flask app
         app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
 
 if __name__ == '__main__':
