@@ -8,3 +8,4 @@ python-dotenv
 pydantic
 tavily-python
 wikipedia
+Flask-SocketIO==5.3.6

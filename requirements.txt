@@ -1,6 +1,7 @@
 # Combined requirements for deployment
 flask==2.3.3
 flask-cors==4.0.0
+Flask-SocketIO==5.3.6
 langchain-core
 python-telegram-bot==22.3
 langchain-google-genai
