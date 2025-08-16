@@ -10,6 +10,7 @@ import sys
 import os
 import uuid
 import asyncio
+import threading
 from threading import Thread
 
 # Add the src directory to the path so we can import the research assistant
@@ -58,12 +59,32 @@ else:
 sessions = {}
 session_rooms = {}  # Maps session_id to list of socket IDs
 
+# Thread-local storage for session context
+thread_local = threading.local()
+
+def set_session_context(session_id):
+    """Set the session ID in thread-local storage for the current request thread"""
+    thread_local.session_id = session_id
+    print(f"🧵 Thread {threading.current_thread().ident}: Set session context to {session_id}")
+
+def get_session_context():
+    """Get the session ID from thread-local storage for the current request thread"""
+    session_id = getattr(thread_local, 'session_id', None)
+    print(f"🧵 Thread {threading.current_thread().ident}: Got session context: {session_id}")
+    return session_id
+
+def clear_session_context():
+    """Clear the session ID from thread-local storage"""
+    if hasattr(thread_local, 'session_id'):
+        delattr(thread_local, 'session_id')
+        print(f"🧵 Thread {threading.current_thread().ident}: Cleared session context")
+
 # WebSocket status update function
 def send_status_update(message: str, status: dict):
     """Send status update via WebSocket to clients in the specific session room"""
     try:
-        # Get session_id from the status updater
-        current_session_id = getattr(send_status_update, 'current_session_id', None)
+        # Get session_id from thread-local storage instead of global variable
+        current_session_id = get_session_context()
         if current_session_id:
             status['session_id'] = current_session_id
             
@@ -72,7 +93,7 @@ def send_status_update(message: str, status: dict):
             # Emit to specific session room instead of broadcasting to all
             socketio.emit('status_update', status, room=f"session_{current_session_id}")
         else:
-            print(f"⚠️ No session ID set for status update: {message}")
+            print(f"⚠️ No session context found for status update: {message}")
             
     except Exception as e:
         print(f"Error sending status update: {e}")
@@ -162,8 +183,8 @@ def start_research():
         session_id = str(uuid.uuid4())
         session = ResearchSession(session_id, topic, max_analysts)
         
-        # Set current session for status updates
-        send_status_update.current_session_id = session_id
+        # Set thread-local session context instead of global variable
+        set_session_context(session_id)
         
         # Emit session started event to specific session room
         socketio.emit('session_started', {
@@ -188,6 +209,9 @@ def start_research():
         session.state = 'awaiting_approval'
         sessions[session_id] = session
         
+        # Clear thread-local session context after graph execution
+        clear_session_context()
+        
         # Convert analysts to dict format for JSON response
         analysts_data = []
         for analyst in session.analysts:
@@ -207,8 +231,8 @@ def start_research():
         
     except Exception as e:
         print(f"Error starting research: {e}")
-        # Clear session id on error
-        send_status_update.current_session_id = None
+        # Clear thread-local session context on error
+        clear_session_context()
         if 'session_id' in locals():
             socketio.emit('error', {'message': str(e), 'session_id': session_id}, 
                          room=f"session_{session_id}")
@@ -229,8 +253,8 @@ def approve_research():
         if session.state != 'awaiting_approval':
             return jsonify({'error': 'Session not in approval state'}), 400
         
-        # Set current session for status updates
-        send_status_update.current_session_id = session_id
+        # Set thread-local session context instead of global variable
+        set_session_context(session_id)
         
         # Emit research started event to specific session room
         socketio.emit('research_approved', {
@@ -252,8 +276,8 @@ def approve_research():
         session.final_report = final_result.get('final_report', 'No report generated')
         session.state = 'completed'
         
-        # Clear session id after completion
-        send_status_update.current_session_id = None
+        # Clear thread-local session context after completion
+        clear_session_context()
         
         # Emit completion event to specific session room
         socketio.emit('research_completed', {
@@ -270,8 +294,8 @@ def approve_research():
         
     except Exception as e:
         print(f"Error approving research: {e}")
-        # Clear session id on error
-        send_status_update.current_session_id = None
+        # Clear thread-local session context on error
+        clear_session_context()
         if 'session_id' in locals():
             socketio.emit('error', {'message': str(e), 'session_id': session_id}, 
                          room=f"session_{session_id}")
@@ -296,8 +320,8 @@ def modify_analysts():
         if session.state != 'awaiting_approval':
             return jsonify({'error': 'Session not in approval state'}), 400
         
-        # Set current session for status updates
-        send_status_update.current_session_id = session_id
+        # Set thread-local session context instead of global variable
+        set_session_context(session_id)
         
         # Emit modification started event to specific session room
         socketio.emit('analysts_modification_started', {
@@ -317,8 +341,8 @@ def modify_analysts():
         session.analysts = result.get('analysts', [])
         session.graph_state = result
         
-        # Clear session id after modification
-        send_status_update.current_session_id = None
+        # Clear thread-local session context after modification
+        clear_session_context()
         
         # Convert analysts to dict format for JSON response
         analysts_data = []
@@ -345,8 +369,8 @@ def modify_analysts():
         
     except Exception as e:
         print(f"Error modifying analysts: {e}")
-        # Clear session id on error
-        send_status_update.current_session_id = None
+        # Clear thread-local session context on error
+        clear_session_context()
         if 'session_id' in locals():
             socketio.emit('error', {'message': str(e), 'session_id': session_id}, 
                          room=f"session_{session_id}")
