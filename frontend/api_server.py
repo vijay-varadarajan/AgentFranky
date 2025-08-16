@@ -22,15 +22,25 @@ app = Flask(__name__)
 
 # Initialize SocketIO with CORS support
 if os.environ.get('FLASK_ENV') == 'production':
-    # In production, allow your Vercel domain
-    socketio = SocketIO(app, cors_allowed_origins=[
-        "https://research-agent-v0.vercel.app",  # Replace with your actual Vercel URL
-        "https://agentfranky.vercel.app",
-        "https://*.vercel.app"  # Allow all Vercel preview deployments
-    ])
+    # In production, allow your Vercel domain and any HTTPS origins
+    socketio = SocketIO(app, 
+                       cors_allowed_origins=[
+                           "https://research-agent-v0.vercel.app",
+                           "https://agentfranky.vercel.app", 
+                           "https://*.vercel.app"
+                       ],
+                       logger=True,
+                       engineio_logger=True,
+                       ping_timeout=60,
+                       ping_interval=25)
 else:
     # In development, allow all origins
-    socketio = SocketIO(app, cors_allowed_origins="*")
+    socketio = SocketIO(app, 
+                       cors_allowed_origins="*",
+                       logger=True,
+                       engineio_logger=True,
+                       ping_timeout=60,
+                       ping_interval=25)
 
 # Configure CORS for HTTP requests
 if os.environ.get('FLASK_ENV') == 'production':
@@ -313,7 +323,29 @@ def test_websocket():
 @app.route('/api/health', methods=['GET'])
 def health_check():
     """Health check endpoint"""
-    return jsonify({'status': 'healthy', 'message': 'Research Assistant API is running'})
+    return jsonify({
+        'status': 'healthy', 
+        'message': 'Research Assistant API is running',
+        'websocket_enabled': True,
+        'port': os.environ.get('PORT', 5000)
+    })
+
+@app.route('/api/websocket-test', methods=['GET'])
+def websocket_test():
+    """WebSocket connectivity test endpoint"""
+    try:
+        # Test if SocketIO is properly initialized
+        socketio.emit('test', {'message': 'WebSocket test'})
+        return jsonify({
+            'status': 'success',
+            'message': 'WebSocket is properly configured',
+            'endpoint': '/socket.io/'
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'WebSocket error: {str(e)}'
+        }), 500
 
 @app.route('/api/sessions', methods=['GET'])
 def list_sessions():
@@ -351,8 +383,16 @@ if __name__ == '__main__':
         print(f"WebSocket connection: ws://localhost:{port}")
     else:
         print(f"Starting production API server on port {port}")
+        print("Production mode - WebSocket support enabled")
     
     print("=" * 40)
     
     # Use socketio.run instead of app.run for WebSocket support
-    socketio.run(app, debug=debug_mode, port=port, host='0.0.0.0')
+    # In production, allow unsafe werkzeug since we're using it for simplicity
+    socketio.run(
+        app, 
+        debug=debug_mode, 
+        port=port, 
+        host='0.0.0.0',
+        allow_unsafe_werkzeug=True  # Allow in production for simplicity
+    )

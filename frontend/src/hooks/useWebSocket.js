@@ -16,7 +16,12 @@ const useWebSocket = () => {
       transports: ['websocket', 'polling'],
       upgrade: true,
       rememberUpgrade: true,
-      forceNew: true
+      forceNew: true,
+      timeout: 20000,
+      reconnection: true,
+      reconnectionDelay: 1000,
+      reconnectionAttempts: 5,
+      maxReconnectionAttempts: 10
     });
 
     // Connection event handlers
@@ -25,9 +30,23 @@ const useWebSocket = () => {
       setIsConnected(true);
     });
 
-    socketRef.current.on('disconnect', () => {
-      console.log('❌ WebSocket disconnected');
+    socketRef.current.on('disconnect', (reason) => {
+      console.log('❌ WebSocket disconnected:', reason);
       setIsConnected(false);
+    });
+
+    socketRef.current.on('connect_error', (error) => {
+      console.error('❌ WebSocket connection error:', error);
+      setIsConnected(false);
+    });
+
+    socketRef.current.on('reconnect', (attemptNumber) => {
+      console.log('🔄 WebSocket reconnected after', attemptNumber, 'attempts');
+      setIsConnected(true);
+    });
+
+    socketRef.current.on('reconnect_error', (error) => {
+      console.error('❌ WebSocket reconnection error:', error);
     });
 
     socketRef.current.on('connected', (data) => {
