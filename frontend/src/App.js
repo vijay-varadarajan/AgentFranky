@@ -2,11 +2,13 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Search, User, Bot, Send, CheckCircle, Edit, AlertCircle, X, Download, Github } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import axios from 'axios';
-import jsPDF from 'jspdf';
-import html2canvas from 'html2canvas';
-import { HelmetProvider, Helmet } from 'react-helmet-async';
+// import jsPDF from 'jspdf';
+// import html2canvas from 'html2canvas';
+import { HelmetProvider } from 'react-helmet-async';
 import API_BASE_URL from './config';
 import SEOHead from './components/SEOHead';
+import useWebSocket from './hooks/useWebSocket';
+import MessageStatusIndicator from './components/MessageStatusIndicator';
 
 const App = () => {
   const [messages, setMessages] = useState([]);
@@ -18,6 +20,103 @@ const App = () => {
   const [isApproved, setIsApproved] = useState(false);
   const [showModifyButton, setShowModifyButton] = useState(true);
   const messagesEndRef = useRef(null);
+
+  // WebSocket hook for real-time updates
+  const { 
+    isConnected, 
+    statusUpdates, 
+    currentStatus, 
+    joinSession, 
+    clearStatusUpdates 
+  } = useWebSocket();
+
+  // Update message content based on status updates
+  useEffect(() => {
+    if (currentStatus && messages.length > 0) {
+      // Find the last assistant message to update
+      const lastAssistantMessageIndex = messages.findIndex(
+        (msg, index) => msg.type === 'assistant' && index === messages.length - 1
+      );
+      
+      if (lastAssistantMessageIndex !== -1) {
+        setMessages(prev => {
+          const newMessages = [...prev];
+          const lastMessage = { ...newMessages[lastAssistantMessageIndex] };
+          
+          // Update the message content with current status
+          const stepName = formatStepName(currentStatus.step);
+          lastMessage.currentStep = stepName;
+          lastMessage.statusMessage = currentStatus.message;
+          lastMessage.isLoading = true; // Keep loading state while processing
+          
+          newMessages[lastAssistantMessageIndex] = lastMessage;
+          return newMessages;
+        });
+      }
+    }
+  }, [currentStatus]);
+
+  // Handle research completion from WebSocket
+  useEffect(() => {
+    const completionUpdate = statusUpdates.find(update => update.step === 'RESEARCH_COMPLETED');
+    if (completionUpdate && messages.length > 0) {
+      // Find the last assistant message and finalize it
+      const lastAssistantMessageIndex = messages.findIndex(
+        (msg, index) => msg.type === 'assistant' && index === messages.length - 1
+      );
+      
+      if (lastAssistantMessageIndex !== -1) {
+        setMessages(prev => {
+          const newMessages = [...prev];
+          const lastMessage = { ...newMessages[lastAssistantMessageIndex] };
+          
+          // Clear loading state and status, add final report if available
+          lastMessage.isLoading = false;
+          lastMessage.currentStep = null;
+          lastMessage.statusMessage = null;
+          
+          // Add final report content if available
+          if (completionUpdate.final_report) {
+            lastMessage.content = '🎉 Research completed successfully!';
+            lastMessage.report = completionUpdate.final_report;
+          }
+          
+          newMessages[lastAssistantMessageIndex] = lastMessage;
+          return newMessages;
+        });
+        
+        setIsLoading(false);
+      }
+    }
+  }, [statusUpdates]);
+
+  // Format step names for display
+  const formatStepName = (step) => {
+    if (!step) return 'Processing...';
+    
+    const stepMap = {
+      'CREATE_ANALYSTS': 'Creating Analyst Team',
+      'INITIATE_ALL_INTERVIEWS': 'Starting Interviews',
+      'ASK_QUESTION': 'Asking Research Questions',
+      'SEARCH_WEB': 'Searching the Web',
+      'SEARCH_WIKIPEDIA': 'Searching Wikipedia',
+      'GENERATE_ANSWER': 'Generating Expert Answers',
+      'SAVE_INTERVIEW': 'Saving Interview',
+      'WRITE_SECTION': 'Writing Report Section',
+      'WRITE_REPORT': 'Compiling Research Report',
+      'WRITE_INTRODUCTION': 'Writing Introduction',
+      'WRITE_CONCLUSION': 'Writing Conclusion',
+      'FINALIZE_REPORT': 'Finalizing Report',
+      'SESSION_STARTED': 'Session Started',
+      'RESEARCH_APPROVED': 'Research Approved',
+      'RESEARCH_COMPLETED': 'Research Completed',
+      'MODIFICATION_STARTED': 'Modifying Analysts',
+      'ANALYSTS_MODIFIED': 'Analysts Updated',
+      'ERROR': 'Error Occurred'
+    };
+
+    return stepMap[step] || step.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, l => l.toUpperCase());
+  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -47,6 +146,9 @@ const App = () => {
       setShowModifyButton(true); // Reset modify button visibility
       setSelectedAnalyst(null); // Reset selected analyst
       
+      // Clear previous status updates
+      clearStatusUpdates();
+      
       addMessage(topic, 'user');
       addMessage('🔍 Starting research on your topic...', 'assistant', { isLoading: true });
 
@@ -59,12 +161,17 @@ const App = () => {
       setMessages(prev => prev.slice(0, -1));
 
       if (response.data.analysts) {
-        setCurrentSession({
+        const sessionData = {
           id: response.data.session_id,
           topic: topic,
           analysts: response.data.analysts,
           state: 'awaiting_approval'
-        });
+        };
+        
+        setCurrentSession(sessionData);
+        
+        // Join the WebSocket session for real-time updates
+        joinSession(response.data.session_id);
 
         addMessage('👥 I\'ve created a team of AI analysts for your research topic:', 'assistant', {
           analysts: response.data.analysts,
@@ -90,28 +197,27 @@ const App = () => {
       setIsApproved(true);
       setTimeout(() => setShowModifyButton(false), 300);
 
-      addMessage('✅ Team approved! Starting in-depth research...', 'assistant', { isLoading: true });
+      // Add a message that will be updated with real-time status
+      addMessage('✅ Team approved! Starting in-depth research...', 'assistant', { 
+        isLoading: true,
+        currentStep: 'Starting Research',
+        statusMessage: 'Preparing to begin comprehensive analysis...'
+      });
 
       const response = await axios.post(`${API_BASE_URL}/api/research/approve`, {
         session_id: currentSession.id
       });
 
-      // Remove loading message
-      setMessages(prev => prev.slice(0, -1));
+      // Note: The message will be updated by WebSocket events, 
+      // so we don't remove the loading message here anymore
+      // The completion will be handled by the WebSocket effect
 
-      if (response.data.final_report) {
-        addMessage('📋 Research complete! Here\'s your comprehensive report:', 'assistant', {
-          report: response.data.final_report
-        });
-        setCurrentSession(null);
-      }
     } catch (error) {
       console.error('Error approving analysts:', error);
       setMessages(prev => prev.slice(0, -1));
       setError('Failed to complete research. Please try again.');
       addMessage('❌ Sorry, there was an error completing the research. Please try again with a new topic.', 'assistant', { isError: true });
       setCurrentSession(null);
-    } finally {
       setIsLoading(false);
     }
   };
@@ -564,7 +670,7 @@ const App = () => {
       
       // Try to identify sections within the body
       let tempIntro = '';
-      let tempBody = '';
+      // let tempBody = '';
       let tempConclusion = '';
       let tempSources = '';
       let currentTempSection = 'intro';
@@ -773,7 +879,7 @@ const App = () => {
                   {message.type === 'user' ? <User size={20} /> : <Bot size={20} />}
                 </div>
                 <div className="message-content">
-                  {message.isLoading && <LoadingIndicator />}
+                  {message.isLoading && <MessageStatusIndicator message={message} isConnected={isConnected} />}
                   {message.isError && (
                     <div className="error-message" role="alert">
                       <AlertCircle size={16} aria-hidden="true" />

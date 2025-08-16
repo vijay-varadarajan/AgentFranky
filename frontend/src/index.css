@@ -1056,3 +1056,140 @@ body::before {
   font-size: 0.8rem;
 }
 
+/* Status Display Styles */
+.status-section {
+  margin: 1.5rem 0;
+  max-width: 1000px;
+  margin-left: auto;
+  margin-right: auto;
+  padding: 0 1rem;
+}
+
+/* Message Status Indicator Styles */
+.message-status-indicator {
+  padding: 1rem;
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.1), rgba(79, 172, 254, 0.1));
+  border: 1px solid rgba(139, 92, 246, 0.2);
+  margin: 0.5rem 0;
+}
+
+.status-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.status-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.status-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem;
+  background: rgba(139, 92, 246, 0.1);
+  border-radius: 50%;
+}
+
+.status-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.status-step {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+}
+
+.connection-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.connection-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  transition: background-color 0.3s ease;
+}
+
+.connection-dot.connected {
+  background-color: #10b981;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.4);
+}
+
+.connection-dot.disconnected {
+  background-color: #ef4444;
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.4);
+}
+
+.connection-text {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.status-message {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  font-style: italic;
+  padding-left: 0.5rem;
+  border-left: 2px solid rgba(139, 92, 246, 0.3);
+}
+
+.progress-bar {
+  width: 100%;
+  height: 3px;
+  background: rgba(139, 92, 246, 0.1);
+  border-radius: 1.5px;
+  overflow: hidden;
+  position: relative;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #8b5cf6, #4facfe);
+  border-radius: 1.5px;
+  animation: progressMove 2s ease-in-out infinite;
+  width: 30%;
+}
+
+@keyframes progressMove {
+  0% {
+    transform: translateX(-100%);
+  }
+  50% {
+    transform: translateX(200%);
+  }
+  100% {
+    transform: translateX(300%);
+  }
+}
+
+@media (max-width: 768px) {
+  .status-section {
+    margin: 1rem 0;
+    padding: 0 0.5rem;
+  }
+  
+  .message-status-indicator {
+    padding: 0.75rem;
+  }
+  
+  .status-header {
+    gap: 0.5rem;
+  }
+  
+  .status-step {
+    font-size: 0.9rem;
+  }
+}
+

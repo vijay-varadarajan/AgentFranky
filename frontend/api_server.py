@@ -5,6 +5,7 @@ Flask API server for the Research Assistant frontend
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from flask_socketio import SocketIO, emit
 import sys
 import os
 import uuid
@@ -14,16 +15,29 @@ from threading import Thread
 # Add the src directory to the path so we can import the research assistant
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from research_assistant import graph, graph_no_interrupt
+from research_assistant import graph, graph_no_interrupt, set_status_callback
 from schema import ResearchGraphState
 
 app = Flask(__name__)
 
-# Configure CORS based on environment
+# Initialize SocketIO with CORS support
+if os.environ.get('FLASK_ENV') == 'production':
+    # In production, allow your Vercel domain
+    socketio = SocketIO(app, cors_allowed_origins=[
+        "https://research-agent-v0.vercel.app",  # Replace with your actual Vercel URL
+        "https://agentfranky.vercel.app",
+        "https://*.vercel.app"  # Allow all Vercel preview deployments
+    ])
+else:
+    # In development, allow all origins
+    socketio = SocketIO(app, cors_allowed_origins="*")
+
+# Configure CORS for HTTP requests
 if os.environ.get('FLASK_ENV') == 'production':
     # In production, only allow your Vercel domain
     CORS(app, origins=[
         "https://research-agent-v0.vercel.app/",  # Replace with your actual Vercel URL
+        "https://agentfranky.vercel.app",
         "https://*.vercel.app"  # Allow all Vercel preview deployments
     ])
 else:
@@ -32,6 +46,23 @@ else:
 
 # Store active sessions
 sessions = {}
+
+# WebSocket status update function
+def send_status_update(message: str, status: dict):
+    """Send status update via WebSocket to all connected clients"""
+    try:
+        # Add session_id to status if we have an active session
+        current_session_id = getattr(send_status_update, 'current_session_id', None)
+        if current_session_id:
+            status['session_id'] = current_session_id
+        
+        print(f"📡 Broadcasting status update: {message}")
+        socketio.emit('status_update', status)
+    except Exception as e:
+        print(f"Error sending status update: {e}")
+
+# Set the callback for the research assistant
+set_status_callback(send_status_update)
 
 class ResearchSession:
     def __init__(self, session_id, topic, max_analysts=3):
@@ -42,6 +73,25 @@ class ResearchSession:
         self.analysts = None
         self.graph_state = None
         self.final_report = None
+
+# WebSocket event handlers
+@socketio.on('connect')
+def handle_connect():
+    print(f"🔌 Client connected: {request.sid}")
+    emit('connected', {'status': 'Connected to Research Assistant API'})
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    print(f"🔌 Client disconnected: {request.sid}")
+
+@socketio.on('join_session')
+def handle_join_session(data):
+    session_id = data.get('session_id')
+    if session_id in sessions:
+        emit('session_joined', {'session_id': session_id, 'status': 'success'})
+        print(f"📱 Client {request.sid} joined session {session_id}")
+    else:
+        emit('session_joined', {'session_id': session_id, 'status': 'error', 'message': 'Session not found'})
 
 @app.route('/api/research/start', methods=['POST'])
 def start_research():
@@ -57,6 +107,16 @@ def start_research():
         # Create new session
         session_id = str(uuid.uuid4())
         session = ResearchSession(session_id, topic, max_analysts)
+        
+        # Set current session for status updates
+        send_status_update.current_session_id = session_id
+        
+        # Emit session started event
+        socketio.emit('session_started', {
+            'session_id': session_id,
+            'topic': topic,
+            'max_analysts': max_analysts
+        })
         
         # Create initial state and run graph until human feedback
         initial_state = {
@@ -93,6 +153,9 @@ def start_research():
         
     except Exception as e:
         print(f"Error starting research: {e}")
+        # Clear session id on error
+        send_status_update.current_session_id = None
+        socketio.emit('error', {'message': str(e), 'session_id': session_id if 'session_id' in locals() else None})
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/research/approve', methods=['POST'])
@@ -110,6 +173,15 @@ def approve_research():
         if session.state != 'awaiting_approval':
             return jsonify({'error': 'Session not in approval state'}), 400
         
+        # Set current session for status updates
+        send_status_update.current_session_id = session_id
+        
+        # Emit research started event
+        socketio.emit('research_approved', {
+            'session_id': session_id,
+            'message': 'Research approved, starting full analysis...'
+        })
+        
         # Use the no-interrupt graph with approved analysts
         research_state = {
             'topic': session.topic,
@@ -124,6 +196,16 @@ def approve_research():
         session.final_report = final_result.get('final_report', 'No report generated')
         session.state = 'completed'
         
+        # Clear session id after completion
+        send_status_update.current_session_id = None
+        
+        # Emit completion event
+        socketio.emit('research_completed', {
+            'session_id': session_id,
+            'final_report': session.final_report,
+            'message': 'Research completed successfully!'
+        })
+        
         return jsonify({
             'session_id': session_id,
             'final_report': session.final_report,
@@ -132,6 +214,9 @@ def approve_research():
         
     except Exception as e:
         print(f"Error approving research: {e}")
+        # Clear session id on error
+        send_status_update.current_session_id = None
+        socketio.emit('error', {'message': str(e), 'session_id': session_id if 'session_id' in locals() else None})
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/research/modify', methods=['POST'])
@@ -153,6 +238,16 @@ def modify_analysts():
         if session.state != 'awaiting_approval':
             return jsonify({'error': 'Session not in approval state'}), 400
         
+        # Set current session for status updates
+        send_status_update.current_session_id = session_id
+        
+        # Emit modification started event
+        socketio.emit('analysts_modification_started', {
+            'session_id': session_id,
+            'feedback': feedback,
+            'message': 'Modifying analyst team based on feedback...'
+        })
+        
         # Update state with feedback and regenerate analysts
         current_state = session.graph_state
         current_state['human_analyst_feedback'] = feedback
@@ -164,6 +259,9 @@ def modify_analysts():
         session.analysts = result.get('analysts', [])
         session.graph_state = result
         
+        # Clear session id after modification
+        send_status_update.current_session_id = None
+        
         # Convert analysts to dict format for JSON response
         analysts_data = []
         for analyst in session.analysts:
@@ -174,6 +272,13 @@ def modify_analysts():
                 'description': analyst.description
             })
         
+        # Emit modification completed event
+        socketio.emit('analysts_modified', {
+            'session_id': session_id,
+            'analysts': analysts_data,
+            'message': 'Analyst team updated successfully!'
+        })
+        
         return jsonify({
             'session_id': session_id,
             'analysts': analysts_data,
@@ -182,6 +287,27 @@ def modify_analysts():
         
     except Exception as e:
         print(f"Error modifying analysts: {e}")
+        # Clear session id on error
+        send_status_update.current_session_id = None
+        socketio.emit('error', {'message': str(e), 'session_id': session_id if 'session_id' in locals() else None})
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/test-websocket', methods=['POST'])
+def test_websocket():
+    """Test WebSocket functionality"""
+    try:
+        # Send a test status update
+        test_status = {
+            'step': 'TEST_WEBSOCKET',
+            'step_number': 0,
+            'message': 'Testing WebSocket connection...',
+            'type': 'test'
+        }
+        
+        socketio.emit('status_update', test_status)
+        
+        return jsonify({'status': 'success', 'message': 'Test WebSocket message sent'})
+    except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/health', methods=['GET'])
@@ -222,9 +348,11 @@ if __name__ == '__main__':
         print(f"Starting API server on http://localhost:{port}")
         print("Frontend should be accessible on http://localhost:3000")
         print(f"Health check: http://localhost:{port}/api/health")
+        print(f"WebSocket connection: ws://localhost:{port}")
     else:
         print(f"Starting production API server on port {port}")
     
     print("=" * 40)
     
-    app.run(debug=debug_mode, port=port, host='0.0.0.0')
+    # Use socketio.run instead of app.run for WebSocket support
+    socketio.run(app, debug=debug_mode, port=port, host='0.0.0.0')
