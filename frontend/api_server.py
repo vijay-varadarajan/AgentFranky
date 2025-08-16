@@ -5,7 +5,7 @@ Flask API server for the Research Assistant frontend
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from flask_socketio import SocketIO, emit
+from flask_socketio import SocketIO, emit, join_room, leave_room
 import sys
 import os
 import uuid
@@ -54,20 +54,26 @@ else:
     # In development, allow all origins
     CORS(app)
 
-# Store active sessions
+# Store active sessions and their WebSocket rooms
 sessions = {}
+session_rooms = {}  # Maps session_id to list of socket IDs
 
 # WebSocket status update function
 def send_status_update(message: str, status: dict):
-    """Send status update via WebSocket to all connected clients"""
+    """Send status update via WebSocket to clients in the specific session room"""
     try:
-        # Add session_id to status if we have an active session
+        # Get session_id from the status updater
         current_session_id = getattr(send_status_update, 'current_session_id', None)
         if current_session_id:
             status['session_id'] = current_session_id
-        
-        print(f"📡 Broadcasting status update: {message}")
-        socketio.emit('status_update', status)
+            
+            print(f"📡 Broadcasting status update to session {current_session_id}: {message}")
+            
+            # Emit to specific session room instead of broadcasting to all
+            socketio.emit('status_update', status, room=f"session_{current_session_id}")
+        else:
+            print(f"⚠️ No session ID set for status update: {message}")
+            
     except Exception as e:
         print(f"Error sending status update: {e}")
 
@@ -93,15 +99,53 @@ def handle_connect():
 @socketio.on('disconnect')
 def handle_disconnect():
     print(f"🔌 Client disconnected: {request.sid}")
+    # Remove client from all session rooms
+    for session_id, socket_ids in session_rooms.items():
+        if request.sid in socket_ids:
+            socket_ids.remove(request.sid)
+            print(f"📱 Client {request.sid} removed from session {session_id}")
+            break
 
 @socketio.on('join_session')
 def handle_join_session(data):
     session_id = data.get('session_id')
-    if session_id in sessions:
+    if session_id:
+        # Join the session room
+        join_room(f"session_{session_id}")
+        
+        # Track the client in the session
+        if session_id not in session_rooms:
+            session_rooms[session_id] = []
+        if request.sid not in session_rooms[session_id]:
+            session_rooms[session_id].append(request.sid)
+        
         emit('session_joined', {'session_id': session_id, 'status': 'success'})
         print(f"📱 Client {request.sid} joined session {session_id}")
+        
+        # Send session status if it exists
+        if session_id in sessions:
+            session = sessions[session_id]
+            emit('session_status', {
+                'session_id': session_id,
+                'state': session.state,
+                'topic': session.topic
+            })
     else:
-        emit('session_joined', {'session_id': session_id, 'status': 'error', 'message': 'Session not found'})
+        emit('session_joined', {'session_id': None, 'status': 'error', 'message': 'Session ID required'})
+
+@socketio.on('leave_session')
+def handle_leave_session(data):
+    session_id = data.get('session_id')
+    if session_id:
+        # Leave the session room
+        leave_room(f"session_{session_id}")
+        
+        # Remove client from session tracking
+        if session_id in session_rooms and request.sid in session_rooms[session_id]:
+            session_rooms[session_id].remove(request.sid)
+            
+        emit('session_left', {'session_id': session_id, 'status': 'success'})
+        print(f"📱 Client {request.sid} left session {session_id}")
 
 @app.route('/api/research/start', methods=['POST'])
 def start_research():
@@ -121,12 +165,12 @@ def start_research():
         # Set current session for status updates
         send_status_update.current_session_id = session_id
         
-        # Emit session started event
+        # Emit session started event to specific session room
         socketio.emit('session_started', {
             'session_id': session_id,
             'topic': topic,
             'max_analysts': max_analysts
-        })
+        }, room=f"session_{session_id}")
         
         # Create initial state and run graph until human feedback
         initial_state = {
@@ -165,7 +209,9 @@ def start_research():
         print(f"Error starting research: {e}")
         # Clear session id on error
         send_status_update.current_session_id = None
-        socketio.emit('error', {'message': str(e), 'session_id': session_id if 'session_id' in locals() else None})
+        if 'session_id' in locals():
+            socketio.emit('error', {'message': str(e), 'session_id': session_id}, 
+                         room=f"session_{session_id}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/research/approve', methods=['POST'])
@@ -186,11 +232,11 @@ def approve_research():
         # Set current session for status updates
         send_status_update.current_session_id = session_id
         
-        # Emit research started event
+        # Emit research started event to specific session room
         socketio.emit('research_approved', {
             'session_id': session_id,
             'message': 'Research approved, starting full analysis...'
-        })
+        }, room=f"session_{session_id}")
         
         # Use the no-interrupt graph with approved analysts
         research_state = {
@@ -209,12 +255,12 @@ def approve_research():
         # Clear session id after completion
         send_status_update.current_session_id = None
         
-        # Emit completion event
+        # Emit completion event to specific session room
         socketio.emit('research_completed', {
             'session_id': session_id,
             'final_report': session.final_report,
             'message': 'Research completed successfully!'
-        })
+        }, room=f"session_{session_id}")
         
         return jsonify({
             'session_id': session_id,
@@ -226,7 +272,9 @@ def approve_research():
         print(f"Error approving research: {e}")
         # Clear session id on error
         send_status_update.current_session_id = None
-        socketio.emit('error', {'message': str(e), 'session_id': session_id if 'session_id' in locals() else None})
+        if 'session_id' in locals():
+            socketio.emit('error', {'message': str(e), 'session_id': session_id}, 
+                         room=f"session_{session_id}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/research/modify', methods=['POST'])
@@ -251,12 +299,12 @@ def modify_analysts():
         # Set current session for status updates
         send_status_update.current_session_id = session_id
         
-        # Emit modification started event
+        # Emit modification started event to specific session room
         socketio.emit('analysts_modification_started', {
             'session_id': session_id,
             'feedback': feedback,
             'message': 'Modifying analyst team based on feedback...'
-        })
+        }, room=f"session_{session_id}")
         
         # Update state with feedback and regenerate analysts
         current_state = session.graph_state
@@ -282,12 +330,12 @@ def modify_analysts():
                 'description': analyst.description
             })
         
-        # Emit modification completed event
+        # Emit modification completed event to specific session room
         socketio.emit('analysts_modified', {
             'session_id': session_id,
             'analysts': analysts_data,
             'message': 'Analyst team updated successfully!'
-        })
+        }, room=f"session_{session_id}")
         
         return jsonify({
             'session_id': session_id,
@@ -299,7 +347,9 @@ def modify_analysts():
         print(f"Error modifying analysts: {e}")
         # Clear session id on error
         send_status_update.current_session_id = None
-        socketio.emit('error', {'message': str(e), 'session_id': session_id if 'session_id' in locals() else None})
+        if 'session_id' in locals():
+            socketio.emit('error', {'message': str(e), 'session_id': session_id}, 
+                         room=f"session_{session_id}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/test-websocket', methods=['POST'])

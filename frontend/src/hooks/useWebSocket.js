@@ -7,6 +7,7 @@ const useWebSocket = () => {
   const [isConnected, setIsConnected] = useState(false);
   const [statusUpdates, setStatusUpdates] = useState([]);
   const [currentStatus, setCurrentStatus] = useState(null);
+  const [currentSessionId, setCurrentSessionId] = useState(null);
 
   useEffect(() => {
     // Create WebSocket connection - use the same base URL as the API
@@ -49,93 +50,128 @@ const useWebSocket = () => {
       console.error('❌ WebSocket reconnection error:', error);
     });
 
+    socketRef.current.on('session_joined', (data) => {
+      console.log('📱 Session joined:', data);
+      if (data.status === 'success') {
+        setCurrentSessionId(data.session_id);
+      }
+    });
+
+    socketRef.current.on('session_left', (data) => {
+      console.log('� Session left:', data);
+      if (data.status === 'success') {
+        setCurrentSessionId(null);
+      }
+    });
+
+    socketRef.current.on('session_status', (data) => {
+      console.log('📊 Session status:', data);
+    });
+
     socketRef.current.on('connected', (data) => {
       console.log('📡 Server confirmed connection:', data);
     });
 
-    // Status update handlers
+    // Status update handlers - only process if from current session
     socketRef.current.on('status_update', (status) => {
       console.log('📊 Status update received:', status);
-      setCurrentStatus(status);
-      setStatusUpdates(prev => [...prev, {
-        ...status,
-        timestamp: new Date(),
-        id: Date.now()
-      }]);
+      // Only process status updates for the current session
+      if (!currentSessionId || status.session_id === currentSessionId) {
+        setCurrentStatus(status);
+        setStatusUpdates(prev => [...prev, {
+          ...status,
+          timestamp: new Date(),
+          id: Date.now()
+        }]);
+      } else {
+        console.log('🚫 Ignoring status update for different session:', status.session_id);
+      }
     });
 
-    // Session event handlers
+    // Session event handlers - only process if from current session
     socketRef.current.on('session_started', (data) => {
       console.log('🎬 Session started:', data);
-      setStatusUpdates(prev => [...prev, {
-        step: 'SESSION_STARTED',
-        message: `Research session started for: "${data.topic}"`,
-        session_id: data.session_id,
-        timestamp: new Date(),
-        id: Date.now(),
-        type: 'session'
-      }]);
+      if (!currentSessionId || data.session_id === currentSessionId) {
+        setStatusUpdates(prev => [...prev, {
+          step: 'SESSION_STARTED',
+          message: `Research session started for: "${data.topic}"`,
+          session_id: data.session_id,
+          timestamp: new Date(),
+          id: Date.now(),
+          type: 'session'
+        }]);
+      }
     });
 
     socketRef.current.on('research_approved', (data) => {
       console.log('✅ Research approved:', data);
-      setStatusUpdates(prev => [...prev, {
-        step: 'RESEARCH_APPROVED',
-        message: data.message,
-        session_id: data.session_id,
-        timestamp: new Date(),
-        id: Date.now(),
-        type: 'approval'
-      }]);
+      if (!currentSessionId || data.session_id === currentSessionId) {
+        setStatusUpdates(prev => [...prev, {
+          step: 'RESEARCH_APPROVED',
+          message: data.message,
+          session_id: data.session_id,
+          timestamp: new Date(),
+          id: Date.now(),
+          type: 'approval'
+        }]);
+      }
     });
 
     socketRef.current.on('research_completed', (data) => {
       console.log('🎉 Research completed:', data);
-      setStatusUpdates(prev => [...prev, {
-        step: 'RESEARCH_COMPLETED',
-        message: data.message,
-        session_id: data.session_id,
-        final_report: data.final_report, // Include the final report
-        timestamp: new Date(),
-        id: Date.now(),
-        type: 'completion'
-      }]);
+      if (!currentSessionId || data.session_id === currentSessionId) {
+        setStatusUpdates(prev => [...prev, {
+          step: 'RESEARCH_COMPLETED',
+          message: data.message,
+          session_id: data.session_id,
+          final_report: data.final_report, // Include the final report
+          timestamp: new Date(),
+          id: Date.now(),
+          type: 'completion'
+        }]);
+      }
     });
 
     socketRef.current.on('analysts_modification_started', (data) => {
       console.log('🔄 Analyst modification started:', data);
-      setStatusUpdates(prev => [...prev, {
-        step: 'MODIFICATION_STARTED',
-        message: data.message,
-        session_id: data.session_id,
-        timestamp: new Date(),
-        id: Date.now(),
-        type: 'modification'
-      }]);
+      if (!currentSessionId || data.session_id === currentSessionId) {
+        setStatusUpdates(prev => [...prev, {
+          step: 'MODIFICATION_STARTED',
+          message: data.message,
+          session_id: data.session_id,
+          timestamp: new Date(),
+          id: Date.now(),
+          type: 'modification'
+        }]);
+      }
     });
 
     socketRef.current.on('analysts_modified', (data) => {
       console.log('✏️ Analysts modified:', data);
-      setStatusUpdates(prev => [...prev, {
-        step: 'ANALYSTS_MODIFIED',
-        message: data.message,
-        session_id: data.session_id,
-        timestamp: new Date(),
-        id: Date.now(),
-        type: 'modification'
-      }]);
+      if (!currentSessionId || data.session_id === currentSessionId) {
+        setStatusUpdates(prev => [...prev, {
+          step: 'ANALYSTS_MODIFIED',
+          message: data.message,
+          session_id: data.session_id,
+          timestamp: new Date(),
+          id: Date.now(),
+          type: 'modification'
+        }]);
+      }
     });
 
     socketRef.current.on('error', (data) => {
       console.error('❌ WebSocket error:', data);
-      setStatusUpdates(prev => [...prev, {
-        step: 'ERROR',
-        message: `Error: ${data.message}`,
-        session_id: data.session_id,
-        timestamp: new Date(),
-        id: Date.now(),
-        type: 'error'
-      }]);
+      if (!currentSessionId || data.session_id === currentSessionId) {
+        setStatusUpdates(prev => [...prev, {
+          step: 'ERROR',
+          message: `Error: ${data.message}`,
+          session_id: data.session_id,
+          timestamp: new Date(),
+          id: Date.now(),
+          type: 'error'
+        }]);
+      }
     });
 
     // Cleanup on unmount
