@@ -7,7 +7,7 @@
 ![React](https://img.shields.io/badge/React-18+-blue?style=for-the-badge&logo=react)
 ![LangGraph](https://img.shields.io/badge/LangGraph-Orchestration-green?style=for-the-badge)
 
-**An AI-powered research assistant that creates teams of AI analysts to conduct comprehensive research and generate detailed reports**
+**A multi-agent research assistant that creates teams of AI analysts to conduct comprehensive research and generate frank, evidence-based, detailed reports**
 
 [🚀 Quick Start](#-quick-start) • [🕹️ Live: Research Agent](https://research-agent-v0.vercel.app/) • [🔧 Installation](#-installation)
 </div>
@@ -150,7 +150,7 @@ The web interface provides a modern, chatbot-style experience:
 - `/help` - Get help and documentation
 - Send any message - Start research on that topic
 
-### 🔌 API Endpoints
+<!-- ### 🔌 API Endpoints
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
@@ -158,8 +158,8 @@ The web interface provides a modern, chatbot-style experience:
 | `/api/research/start` | POST | Start new research session |
 | `/api/research/approve` | POST | Approve analysts and begin research |
 | `/api/research/modify` | POST | Modify analyst team |
-| `/api/sessions` | GET | List active sessions |
-
+| `/api/sessions` | GET | List active sessions | -->
+<!-- 
 **Example API Usage:**
 ```bash
 # Start research
@@ -171,7 +171,7 @@ curl -X POST http://localhost:5000/api/research/start \
 curl -X POST http://localhost:5000/api/research/approve \
   -H "Content-Type: application/json" \
   -d '{"session_id": "your_session_id"}'
-```
+``` -->
 
 ## 🛠️ Installation
 
@@ -207,21 +207,20 @@ curl -X POST http://localhost:5000/api/research/approve \
    cd ../src
    python test_graph.py
    ```
-
+<!-- 
 ### 🐳 Docker Deployment
 
 ```bash
 # Build and run with Docker
 docker build -t research-agent .
 docker run -p 5000:5000 --env-file .env research-agent
-```
+``` -->
 
 ### ☁️ Cloud Deployment
 
 The application is configured for deployment on:
 - **Vercel** (Frontend)
 - **Render/Railway** (Backend API)
-- **Heroku** (Full stack)
 
 See deployment-specific configuration in:
 - `frontend/package.json` - Frontend build configuration
@@ -273,7 +272,7 @@ TELEGRAM_BOT_TOKEN=your_telegram_bot_token
 # Optional - LangSmith Tracing
 LANGSMITH_API_KEY=your_langsmith_api_key
 LANGCHAIN_TRACING_V2=true
-LANGCHAIN_PROJECT=research-assistant
+LANGCHAIN_PROJECT=your-langchain-project-name
 
 # Optional - Production Settings
 FLASK_ENV=production
@@ -282,10 +281,11 @@ PORT=5000
 
 ### Getting API Keys
 
-1. **Google AI API**: 
-   - Visit [Google AI Studio](https://aistudio.google.com/)
-   - Create a new API key
-   - Enable the Generative AI API
+1. **Google Gemini API**:  
+   - Go to [Google AI Studio](https://aistudio.google.com/)  
+   - Sign in and navigate to the Gemini API section  
+   - Create and copy your Gemini API key  
+   - Ensure the Gemini API is enabled for your project
 
 2. **Tavily API**:
    - Sign up at [Tavily](https://tavily.com/)
@@ -435,6 +435,6 @@ npm start
 
 **⭐ If you find this project useful, please give it a star! ⭐**
 
-[Report Bug](https://github.com/vijay-varadarajan/ResearchAgent-v0/issues) • [Request Feature](https://github.com/vijay-varadarajan/ResearchAgent-v0/issues) • [Documentation](https://github.com/vijay-varadarajan/ResearchAgent-v0/wiki)
+[Report Bug](https://github.com/vijay-varadarajan/agentfranky/issues) • [Request Feature](https://github.com/vijay-varadarajan/agentfranky/issues) • [Documentation](https://github.com/vijay-varadarajan/AgentFranky/blob/main/README.md)
 
 </div>
