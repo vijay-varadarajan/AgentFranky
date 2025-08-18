@@ -17,7 +17,6 @@ from threading import Thread
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from research_assistant import graph, graph_no_interrupt, set_status_callback
-from schema import ResearchGraphState
 
 app = Flask(__name__)
 
@@ -335,8 +334,13 @@ def modify_analysts():
         current_state['human_analyst_feedback'] = feedback
         
         # Run graph to regenerate analysts
+
+        print(current_state)
+
         result = graph.invoke(current_state, {"recursion_limit": 10})
-        
+
+        print(result)
+
         # Update session
         session.analysts = result.get('analysts', [])
         session.graph_state = result
@@ -375,6 +379,10 @@ def modify_analysts():
             socketio.emit('error', {'message': str(e), 'session_id': session_id}, 
                          room=f"session_{session_id}")
         return jsonify({'error': str(e)}), 500
+    
+
+
+# ----------- Testing websocket code ----------------
 
 @app.route('/api/test-websocket', methods=['POST'])
 def test_websocket():
@@ -434,6 +442,12 @@ def list_sessions():
         })
     return jsonify({'sessions': session_list})
 
+# ------------------------------------------------------
+
+
+
+# ---------- Websocket event handlers ---------------
+
 @app.errorhandler(404)
 def not_found(error):
     return jsonify({'error': 'Endpoint not found'}), 404
@@ -441,6 +455,10 @@ def not_found(error):
 @app.errorhandler(500)
 def internal_error(error):
     return jsonify({'error': 'Internal server error'}), 500
+
+# ----------- WebSocket event handlers ---------------
+
+
 
 if __name__ == '__main__':
     print("🔬 Research Assistant API Server")

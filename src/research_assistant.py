@@ -69,16 +69,31 @@ analyst_instructions="""You are tasked with creating a set of AI analyst persona
 
 1. First, review the research topic:
 {topic}
-        
-2. Examine any editorial feedback that has been optionally provided to guide creation of the analysts: 
-        
-{human_analyst_feedback}
     
-3. Determine the most interesting themes based upon documents and / or feedback above.
+2. Determine the most interesting themes based upon documents and / or feedback above.
                     
-4. Pick the top {max_analysts} themes.
+3. Pick the top {max_analysts} themes.
 
-5. Assign one analyst to each theme."""
+4. Assign one analyst to each theme."""
+
+
+analyst_modifier_instructions="""You are tasked with modifying the AI analyst personas. Follow these instructions carefully:
+
+1. You were provided the research topic: {topic}
+
+2. These were your earlier selection of analysts: {existing_analysts}
+
+3. You must incorporate the following feedback in order to modify the existing analysts:
+{human_analyst_feedback}
+
+4. Review the research topic: {topic}
+
+5. Determine the most interesting themes based upon documents and / or feedback above.
+
+6. Strictly pick the top {max_analysts} themes.
+
+7. Assign one analyst to each theme."""
+
 
 def create_analysts(state: GenerateAnalystsState):
     status_updater.update("CREATE_ANALYSTS", 1)
@@ -93,15 +108,31 @@ def create_analysts(state: GenerateAnalystsState):
     structured_llm = llm.with_structured_output(Perspectives)
 
     # System message
-    system_message = analyst_instructions.format(topic=topic,
-                                                            human_analyst_feedback=human_analyst_feedback, 
-                                                            max_analysts=max_analysts)
+    if human_analyst_feedback:
+        existing_analysts = state.get('analysts', [])
+        formatted_existing_analysts = ""
+    
+        for analyst in existing_analysts:
+            formatted_existing_analysts += f"- {analyst.name} ({analyst.role}): {analyst.affiliation}. Description {analyst.description}\n"
+        
+
+        system_message = analyst_modifier_instructions.format(topic=topic,
+            max_analysts=max_analysts, existing_analysts=formatted_existing_analysts,
+            human_analyst_feedback=human_analyst_feedback)
+        
+        print(f"FORMATTED ANALYSTS: {system_message}")
+
+    else:
+        system_message = analyst_instructions.format(topic=topic, max_analysts=max_analysts)
 
     # Generate question 
     analysts = structured_llm.invoke([SystemMessage(content=system_message)]+[HumanMessage(content="Generate the set of analysts.")])
     
+
+
     # Write the list of analysis to state
     return {"analysts": analysts.analysts}
+
 
 def human_feedback(state: GenerateAnalystsState):
     status_updater.update("HUMAN_FEEDBACK", 2)
@@ -446,7 +477,10 @@ To format your report:
 8. List your sources in order and do not repeat.
 
 [1] Source 1
+
 [2] Source 2
+
+[3] Source 3
 
 Here are the memos from your analysts to build your report from: 
 

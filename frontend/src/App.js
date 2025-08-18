@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Search, User, Bot, Send, CheckCircle, Edit, AlertCircle, X, Download, Github } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import axios from 'axios';
@@ -19,6 +19,10 @@ const App = () => {
   const [selectedAnalyst, setSelectedAnalyst] = useState(null);
   const [isApproved, setIsApproved] = useState(false);
   const [showModifyButton, setShowModifyButton] = useState(true);
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [isUpdatingAnalysts, setIsUpdatingAnalysts] = useState(false);
+  const [updatingMessageId, setUpdatingMessageId] = useState(null);
+  const [prevMessageCount, setPrevMessageCount] = useState(0);
   const messagesEndRef = useRef(null);
 
   // WebSocket hook for real-time updates
@@ -122,9 +126,19 @@ const App = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
+  // Only auto-scroll when messages are added, not when they're updated
   useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+    // Only scroll if the number of messages increased (new message added)
+    if (messages.length > prevMessageCount) {
+      scrollToBottom();
+    }
+    setPrevMessageCount(messages.length);
+  }, [messages.length, prevMessageCount]); // Only depend on length, not full messages array
+
+  // Memoize the setSelectedAnalyst function to prevent unnecessary re-renders
+  const handleAnalystSelect = useCallback((analyst) => {
+    setSelectedAnalyst(analyst);
+  }, []);
 
   const addMessage = (content, type, metadata = {}) => {
     const message = {
@@ -200,8 +214,8 @@ const App = () => {
       // Add a message that will be updated with real-time status
       addMessage('✅ Team approved! Starting in-depth research...', 'assistant', { 
         isLoading: true,
-        currentStep: 'Starting Research',
-        statusMessage: 'Preparing to begin comprehensive analysis...'
+        currentStep: 'Starting Research.',
+        statusMessage: 'Beginning comprehensive analysis. Hold tight, this will take 2-3 mins...'
       });
 
       const response = await axios.post(`${API_BASE_URL}/api/research/approve`, {
@@ -226,6 +240,7 @@ const App = () => {
     try {
       setIsLoading(true);
       setError(null);
+      // Don't start animation here - only when we get response
 
       addMessage(`📝 Modifying analyst team based on your feedback: "${feedback}"`, 'assistant', { isLoading: true });
 
@@ -238,25 +253,85 @@ const App = () => {
       setMessages(prev => prev.slice(0, -1));
 
       if (response.data.analysts) {
+        // Find the message that will be updated BEFORE starting animation
+        const currentMessages = messages;
+        const lastAnalystMessageIndex = currentMessages.findLastIndex(msg => 
+          msg.type === 'assistant' && msg.analysts && msg.needsApproval
+        );
+        
+        if (lastAnalystMessageIndex !== -1) {
+          setUpdatingMessageId(currentMessages[lastAnalystMessageIndex].id);
+        }
+        
+        // NOW start the animation since we have new analysts
+        setIsUpdatingAnalysts(true);
+        
         setCurrentSession(prev => ({
           ...prev,
           analysts: response.data.analysts
         }));
 
-        addMessage('🔄 I\'ve updated the analyst team based on your feedback:', 'assistant', {
-          analysts: response.data.analysts,
-          needsApproval: true
-        });
-        
-        // Reset approval state for new team
-        setIsApproved(false);
-        setShowModifyButton(true);
+        // Wait for fade out animation to complete before updating
+        setTimeout(() => {
+          // Find and update the previous analyst team message instead of adding a new one
+          setMessages(prev => {
+            const newMessages = [...prev];
+            
+            // Find the last message that contains analysts (the previous team)
+            const lastAnalystMessageIndex = newMessages.findLastIndex(msg => 
+              msg.type === 'assistant' && msg.analysts && msg.needsApproval
+            );
+            
+            if (lastAnalystMessageIndex !== -1) {
+              // Update the existing analyst message with new team
+              newMessages[lastAnalystMessageIndex] = {
+                ...newMessages[lastAnalystMessageIndex],
+                content: '🔄 I\'ve updated the analyst team based on your feedback:',
+                analysts: response.data.analysts,
+                needsApproval: true,
+                isUpdated: true // Flag to trigger slide-in animation
+              };
+            } else {
+              // Fallback: add new message if no previous analyst message found
+              newMessages.push({
+                id: Date.now(),
+                content: '🔄 I\'ve updated the analyst team based on your feedback:',
+                type: 'assistant',
+                timestamp: new Date(),
+                analysts: response.data.analysts,
+                needsApproval: true,
+                isUpdated: true
+              });
+            }
+            
+            return newMessages;
+          });
+          
+          // End the updating state after a short delay
+          setTimeout(() => {
+            setIsUpdatingAnalysts(false);
+            setUpdatingMessageId(null);
+          }, 100);
+          
+          // Clear the isUpdated flag after animation completes
+          setTimeout(() => {
+            setMessages(prev => prev.map(msg => 
+              msg.isUpdated ? { ...msg, isUpdated: false } : msg
+            ));
+          }, 600); // Match the animation duration
+          
+          // Reset approval state for new team
+          setIsApproved(false);
+          setShowModifyButton(true);
+        }, 300); // Wait for fade out
       }
     } catch (error) {
       console.error('Error modifying analysts:', error);
       setMessages(prev => prev.slice(0, -1));
       setError('Failed to modify analysts. Please try again.');
       addMessage('❌ Sorry, there was an error modifying the analysts. Please try again.', 'assistant', { isError: true });
+      setIsUpdatingAnalysts(false); // Reset animation state on error
+      setUpdatingMessageId(null);
     } finally {
       setIsLoading(false);
     }
@@ -741,49 +816,134 @@ const App = () => {
     </div>
   );
 
-  const AnalystsDisplay = ({ analysts, needsApproval }) => (
-    <div className="analysts-display">
-      <h3><Bot size={20} /> AI Analyst Team</h3>
-      <div className="analysts-grid">
-        {analysts.map((analyst, index) => (
-          <div 
-            key={index} 
-            className="analyst-card"
-            onClick={() => setSelectedAnalyst(analyst)}
-          >
-            <h4>{analyst.name}</h4>
-            <div className="role">{analyst.role}</div>
-            <div className="affiliation">{analyst.affiliation}</div>
-          </div>
-        ))}
-      </div>
-      {needsApproval && (
-        <div className="approval-buttons">
-          <button 
-            className={`btn btn-primary ${isApproved ? 'btn-approved' : ''}`}
-            onClick={approveAnalysts}
-            disabled={isLoading || isApproved}
-          >
-            <CheckCircle size={16} />
-            <span className="btn-text">Approve Team</span>
-          </button>
-          {showModifyButton && (
-            <button 
-              className={`btn btn-secondary ${!showModifyButton ? 'btn-disappearing' : ''}`}
-              onClick={() => {
-                const feedback = prompt('How would you like me to modify the analyst team?');
-                if (feedback) modifyAnalysts(feedback);
-              }}
-              disabled={isLoading}
-            >
-              <Edit size={16} />
-              Modify Team
+  const FeedbackModal = ({ isOpen, onClose, onSubmit }) => {
+    const [localFeedbackText, setLocalFeedbackText] = useState('');
+
+    const handleSubmit = (e) => {
+      e.preventDefault();
+      if (localFeedbackText.trim()) {
+        onSubmit(localFeedbackText);
+        setLocalFeedbackText('');
+        onClose();
+      }
+    };
+
+    const handleClose = () => {
+      setLocalFeedbackText('');
+      onClose();
+    };
+
+    if (!isOpen) return null;
+
+    return (
+      <div className="modal-overlay" onClick={handleClose}>
+        <div className="modal-content" onClick={e => e.stopPropagation()}>
+          <div className="modal-header">
+            <h2 className="modal-title">📝 Modify Analyst Team</h2>
+            <button className="modal-close" onClick={handleClose}>
+              <X size={20} color="red" strokeWidth={3} />
             </button>
-          )}
+          </div>
+          <div className="modal-body">
+            <form onSubmit={handleSubmit}>
+              <div className="feedback-form">
+                <label htmlFor="feedback-input" className="feedback-label">
+                  How would you like me to modify the analyst team?
+                </label>
+                <textarea
+                  id="feedback-input"
+                  value={localFeedbackText}
+                  onChange={(e) => setLocalFeedbackText(e.target.value)}
+                  placeholder="E.g., 'Add a cybersecurity expert', 'Replace the economist with a data scientist', 'Focus more on environmental aspects'..."
+                  className="feedback-textarea"
+                  rows={4}
+                  required
+                />
+                <div className="feedback-buttons">
+                  <button 
+                    type="button" 
+                    className="btn btn-secondary" 
+                    onClick={handleClose}
+                  >
+                    Cancel <X size={20} color="red" strokeWidth={3} />
+                  </button>
+                  <button 
+                    type="submit" 
+                    className="btn btn-primary"
+                    disabled={!localFeedbackText.trim()}
+                  >
+                    <Edit size={16} />
+                    Modify Team
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
         </div>
-      )}
-    </div>
-  );
+      </div>
+    );
+  };
+
+  const AnalystsDisplay = React.memo(({ analysts, needsApproval, isUpdating = false, isUpdated = false, onAnalystSelect }) => {
+    const [showCards, setShowCards] = useState(false);
+    
+    useEffect(() => {
+      if (isUpdated) {
+        // Trigger the slide-in animation for cards
+        const timer = setTimeout(() => setShowCards(true), 100);
+        return () => clearTimeout(timer);
+      } else {
+        setShowCards(true);
+      }
+    }, [isUpdated]);
+
+    // Note: Removed the problematic setMessages call that was causing flickering
+    // The isUpdated flag will be cleared by the parent component after animation
+
+    return (
+      <div className={`analysts-display ${isUpdating ? 'updating' : ''} ${isUpdated ? 'updated' : ''}`}>
+        <h3><Bot size={20} /> AI Analyst Team</h3>
+        <div className={`analysts-grid ${isUpdating ? 'updating' : ''}`}>
+          {analysts.map((analyst, index) => (
+            <div 
+              key={`${analyst.name}-${index}`} // Use a more unique key to trigger re-render
+              className="analyst-card"
+              onClick={() => onAnalystSelect(analyst)}
+              style={{
+                animationDelay: isUpdated ? `${(index + 1) * 0.1}s` : '0s'
+              }}
+            >
+              <h4>{analyst.name}</h4>
+              <div className="role">{analyst.role}</div>
+              <div className="affiliation">{analyst.affiliation}</div>
+            </div>
+          ))}
+        </div>
+        {needsApproval && (
+          <div className={`approval-buttons ${isUpdated ? 'updated' : ''}`}>
+            <button 
+              className={`btn btn-primary ${isApproved ? 'btn-approved' : ''}`}
+              onClick={approveAnalysts}
+              disabled={isLoading || isApproved}
+            >
+              <CheckCircle size={16} />
+              <span className="btn-text">Approve Team</span>
+            </button>
+            {showModifyButton && (
+              <button 
+                className={`btn btn-secondary ${!showModifyButton ? 'btn-disappearing' : ''}`}
+                onClick={() => setShowFeedbackModal(true)}
+                disabled={isLoading}
+              >
+                <Edit size={16} />
+                Modify Team
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  });
 
   const ReportDisplay = ({ report }) => (
     <div className="report-content" id="report-content">
@@ -802,16 +962,16 @@ const App = () => {
     </div>
   );
 
-  const LoadingIndicator = () => (
-    <div className="loading">
-      <span>Processing</span>
-      <div className="loading-dots">
-        <div className="loading-dot"></div>
-        <div className="loading-dot"></div>
-        <div className="loading-dot"></div>
-      </div>
-    </div>
-  );
+  // const LoadingIndicator = () => (
+  //   <div className="loading">
+  //     <span>Processing</span>
+  //     <div className="loading-dots">
+  //       <div className="loading-dot"></div>
+  //       <div className="loading-dot"></div>
+  //       <div className="loading-dot"></div>
+  //     </div>
+  //   </div>
+  // );
 
   const WelcomeMessage = () => (
     <section className="welcome-message" role="main" aria-labelledby="main-heading">
@@ -893,6 +1053,9 @@ const App = () => {
                         <AnalystsDisplay 
                           analysts={message.analysts} 
                           needsApproval={message.needsApproval}
+                          isUpdating={isUpdatingAnalysts && message.id === updatingMessageId}
+                          isUpdated={message.isUpdated}
+                          onAnalystSelect={handleAnalystSelect}
                         />
                       )}
                       {message.report && <ReportDisplay report={message.report} />}
@@ -912,43 +1075,46 @@ const App = () => {
           </div>
         )}
 
-        <section className="input-section" aria-label="Research topic input">
-          <form onSubmit={handleSubmit} className="input-container" role="search">
-            <label htmlFor="research-input" className="sr-only">
-              {currentSession?.state === 'awaiting_approval' 
-                ? "Provide feedback to modify the analyst team" 
-                : "Enter your research topic"}
-            </label>
-            <input
-              id="research-input"
-              type="text"
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              placeholder={
-                currentSession?.state === 'awaiting_approval' 
-                  ? "Provide feedback to modify the analyst team..." 
-                  : "Enter your research topic (e.g., 'Machine Learning in Healthcare')"
-              }
-              className="input-field"
-              disabled={isLoading}
-              aria-describedby="input-help"
-            />
-            <div id="input-help" className="sr-only">
-              {currentSession?.state === 'awaiting_approval' 
-                ? "Enter feedback to modify the current analyst team based on your requirements"
-                : "Enter any research topic and Agent Franky will create a comprehensive evidence-based report"}
-            </div>
-            <button 
-              type="submit" 
-              className="send-button"
-              disabled={isLoading || !inputValue.trim()}
-              aria-label={currentSession?.state === 'awaiting_approval' ? 'Send feedback for analyst modification' : 'Start research on entered topic'}
-            >
-              <Send size={18} aria-hidden="true" />
-              <span>{currentSession?.state === 'awaiting_approval' ? 'Send Feedback' : 'Start Research'}</span>
-            </button>
-          </form>
-        </section>
+        {/* Hide input section if awaiting approval */}
+        {currentSession?.state !== 'awaiting_approval' && (
+          <section className="input-section" aria-label="Research topic input">
+            <form onSubmit={handleSubmit} className="input-container" role="search">
+              <label htmlFor="research-input" className="sr-only">
+                {currentSession?.state === 'awaiting_approval' 
+                  ? "Provide feedback to modify the analyst team" 
+                  : "Enter your research topic"}
+              </label>
+              <input
+                id="research-input"
+                type="text"
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                placeholder={
+                  currentSession?.state === 'awaiting_approval' 
+                    ? "Provide feedback to modify the analyst team..." 
+                    : "Enter your research topic (e.g., 'Machine Learning in Healthcare')"
+                }
+                className="input-field"
+                disabled={isLoading}
+                aria-describedby="input-help"
+              />
+              <div id="input-help" className="sr-only">
+                {currentSession?.state === 'awaiting_approval' 
+                  ? "Enter feedback to modify the current analyst team based on your requirements"
+                  : "Enter any research topic and Agent Franky will create a comprehensive evidence-based report"}
+              </div>
+              <button 
+                type="submit" 
+                className="send-button"
+                disabled={isLoading || !inputValue.trim()}
+                aria-label={currentSession?.state === 'awaiting_approval' ? 'Send feedback for analyst modification' : 'Start research on entered topic'}
+              >
+                <Send size={18} aria-hidden="true" />
+                <span>{currentSession?.state === 'awaiting_approval' ? 'Send Feedback' : 'Start Research'}</span>
+              </button>
+            </form>
+          </section>
+        )}
       </main>
 
       {selectedAnalyst && (
@@ -957,6 +1123,12 @@ const App = () => {
           onClose={() => setSelectedAnalyst(null)} 
         />
       )}
+
+      <FeedbackModal 
+        isOpen={showFeedbackModal}
+        onClose={() => setShowFeedbackModal(false)}
+        onSubmit={modifyAnalysts}
+      />
       </div>
     </HelmetProvider>
   );
