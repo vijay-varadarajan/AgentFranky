@@ -77,16 +77,6 @@ chmod +x setup.sh
 
 3. **Get Your Report**: Once approved, the AI analysts will conduct research and provide a comprehensive report
 
-## API Endpoints
-
-The Flask backend provides the following endpoints:
-
-- `POST /api/research/start` - Start a new research session
-- `POST /api/research/approve` - Approve analysts and start research
-- `POST /api/research/modify` - Modify analyst team with feedback
-- `GET /api/health` - Health check
-- `GET /api/sessions` - List active sessions (debugging)
-
 ## Project Structure
 
 ```
